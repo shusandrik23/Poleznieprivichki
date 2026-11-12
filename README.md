@@ -43,6 +43,9 @@ https://shusandrik23.github.io/Poleznieprivichki/
 | `js/cloud.js` | Firebase: вход, синхронизация, друзья, вызовы |
 | `firebase-config.js` | Настройки вашего Firebase-проекта |
 | `firestore.rules` | Правила доступа к данным |
+| `js/native.js` | Мост к Android: вход, «Поделиться», «Назад» |
+| `android/`, `capacitor.config.json` | Android-приложение (Capacitor) |
+| `scripts/build-web.mjs` | Сборка веб-части в `www/` для Android |
 
 ## Подключение сервера (Firebase)
 
@@ -56,14 +59,38 @@ https://shusandrik23.github.io/Poleznieprivichki/
 6. **Project settings (шестерёнка) → General → Your apps → значок `</>` (Web)** → зарегистрируйте приложение → скопируйте объект `firebaseConfig`.
 7. Вставьте его в `firebase-config.js` вместо `null`. Эти значения не секретные, их можно хранить в открытом репозитории.
 
-## Путь в Google Play (Android)
+## Android-приложение (Capacitor)
 
-Сначала приложение выходит только на Android.
+Проект Android уже лежит в папке `android/`: название «Полезные привычки», пакет `com.poleznieprivychki.app`, своя иконка и заставка.
 
-1. Обернуть веб-приложение в Android-приложение через [Capacitor](https://capacitorjs.com).
-2. Вход через Google внутри приложения — плагин `@capacitor-firebase/authentication` (всплывающие окна входа в нативной оболочке не работают). В Firebase добавить Android-приложение и SHA-1 ключа подписи.
-3. **Health Connect** (Android-аналог «Здоровья»): автоматически отмечать привычки по шагам, сну и тренировкам.
-4. Нужны: аккаунт разработчика Google Play (разовый взнос $25), страница с политикой конфиденциальности, форма Data safety в консоли Google Play. Удаление аккаунта в приложении уже есть — Google Play его требует.
+**Готовый APK без всякой установки.** При каждом обновлении ветки GitHub сам собирает приложение: вкладка **Actions** → последний запуск **Android APK** → внизу **Artifacts** → `poleznie-privychki-debug`. Внутри — `app-debug.apk`: перекиньте на телефон и установите (Android попросит разрешить установку из этого источника).
+
+**Сборка на своём компьютере** (нужны Node.js 22 и Android Studio):
+
+```bash
+npm install
+npm run sync          # собирает веб-часть в www/ и переносит в android/
+npm run open:android  # открывает проект в Android Studio → Run
+```
+
+После любых изменений в `index.html` или `js/` — снова `npm run sync`.
+
+Что уже работает в приложении по-нативному: системное меню «Поделиться» (в том числе картинкой серии), WhatsApp, копирование, кнопка «Назад». Ссылки-приглашения ведут на сайт https://shusandrik23.github.io/Poleznieprivichki/.
+
+**Вход через Google в приложении** включается вместе с Firebase:
+
+1. В консоли Firebase: Project settings → Your apps → **Add app → Android**, пакет `com.poleznieprivychki.app`. Добавить SHA-1 ключа подписи (для отладочной сборки: `cd android && ./gradlew signingReport`).
+2. Скачать `google-services.json` и положить в `android/app/`.
+3. `npm install @capacitor-firebase/authentication` и в `android/variables.gradle` добавить `rgcfaIncludeGoogle = true`; в `capacitor.config.json` — `"plugins": { "FirebaseAuthentication": { "skipNativeAuth": true, "providers": ["google.com"] } }`.
+
+Без `google-services.json` этот плагин роняет приложение при запуске, поэтому он пока не установлен.
+
+## Путь в Google Play
+
+1. Аккаунт разработчика Google Play (разовый взнос $25).
+2. Ключ подписи для релиза и сборка `.aab` (`./gradlew bundleRelease`).
+3. Страница с политикой конфиденциальности и форма Data safety в консоли Google Play. Удаление аккаунта в приложении уже есть — Google Play его требует.
+4. Позже: **Health Connect** — автоматически отмечать привычки по шагам, сну и тренировкам.
 
 Вход через Apple не нужен, пока нет версии для iPhone. Кнопка уже готова: `appleSignInEnabled` в `firebase-config.js`.
 

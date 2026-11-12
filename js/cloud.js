@@ -2,6 +2,7 @@
 import { firebaseConfig, appleSignInEnabled } from '../firebase-config.js';
 import { streaks, habitKey, challengeProgress, todayNumber, dateKey } from './core.js';
 import { tournamentById } from './tournaments.js';
+import { isNative, hasNativeGoogle, nativeGoogleIdToken, nativeSignOut, appUrl } from './native.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/10.14.1';
 const params = new URLSearchParams(location.search);
@@ -76,6 +77,14 @@ export async function initCloud(h) {
 // ---------- Вход и выход ----------
 
 export async function signInGoogle() {
+  if (isNative) {
+    // В Android-приложении всплывающие окна не работают — входим через системный выбор аккаунта Google.
+    if (!hasNativeGoogle()) throw new Error('Вход через Google в приложении появится после подключения Firebase.');
+    const idToken = await nativeGoogleIdToken();
+    if (!idToken) return;
+    await fb.signInWithCredential(auth, fb.GoogleAuthProvider.credential(idToken));
+    return;
+  }
   await signInWith(new fb.GoogleAuthProvider());
 }
 
@@ -99,6 +108,7 @@ async function signInWith(provider) {
 
 export async function signOut() {
   await fb.signOut(auth);
+  await nativeSignOut();
 }
 
 function stopListeners() {
@@ -488,7 +498,7 @@ function randomCode() {
 // Возвращает ссылку сразу (чтобы можно было открыть WhatsApp без задержки), а запись идёт в фоне.
 export function createInvite(habitName = null, days = null) {
   const code = randomCode();
-  const url = `${location.origin}${location.pathname}?invite=${code}`;
+  const url = `${appUrl()}?invite=${code}`;
   const saved = fb.setDoc(fb.doc(db, 'invites', code), {
     from: social.user.uid, nickname: social.profile.nickname,
     habitName, habitKey: habitName ? habitKey(habitName) : null, days,
@@ -548,7 +558,8 @@ export async function deleteAccount() {
     await fb.deleteUser(user);
   } catch (e) {
     if (e.code === 'auth/requires-recent-login') {
-      await fb.reauthenticateWithPopup(user, providerFor(user));
+      if (isNative) await fb.reauthenticateWithCredential(user, fb.GoogleAuthProvider.credential(await nativeGoogleIdToken()));
+      else await fb.reauthenticateWithPopup(user, providerFor(user));
       await fb.deleteUser(user);
     } else throw e;
   }

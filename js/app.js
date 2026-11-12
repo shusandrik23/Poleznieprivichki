@@ -3,6 +3,7 @@ import * as cloud from './cloud.js';
 import { social } from './cloud.js';
 import { factFor } from './facts.js';
 import { quoteFor } from './quotes.js';
+import { isNative, appUrl, nativeShare, copyText, openExternal, onBackButton } from './native.js';
 import { tournamentsAround, tournamentStatus, canJoin } from './tournaments.js';
 
 const STORAGE_KEY = 'habit-trainer-v1';
@@ -217,9 +218,9 @@ function renderHabits() {
         <div class="row">
           ${canShareFiles() ? `<button class="btn primary" data-action="share-streak" data-via="image" data-id="${h.id}">Поделиться картинкой</button>` : ''}
           <button class="btn whatsapp" data-action="share-streak" data-via="whatsapp" data-id="${h.id}">WhatsApp</button>
-          ${navigator.share ? `<button class="btn" data-action="share-streak" data-via="share" data-id="${h.id}">Поделиться…</button>` : ''}
+          ${canShareText() ? `<button class="btn" data-action="share-streak" data-via="share" data-id="${h.id}">Поделиться…</button>` : ''}
           <button class="btn" data-action="share-streak" data-via="copy" data-id="${h.id}">Скопировать текст</button>
-          <button class="btn" data-action="share-streak" data-via="download" data-id="${h.id}">Скачать картинку</button>
+          ${isNative ? '' : `<button class="btn" data-action="share-streak" data-via="download" data-id="${h.id}">Скачать картинку</button>`}
         </div>
         ${flashHtml('share')}
       </div>`;
@@ -317,7 +318,7 @@ function inviteCard() {
     <p class="small">Отправьте ссылку. Когда друг откроет её и войдёт, вы сразу станете друзьями.</p>
     <div class="row">
       <button class="btn whatsapp" data-action="invite" data-via="whatsapp">WhatsApp</button>
-      ${navigator.share ? '<button class="btn" data-action="invite" data-via="share">Поделиться…</button>' : ''}
+      ${canShareText() ? '<button class="btn" data-action="invite" data-via="share">Поделиться…</button>' : ''}
       <button class="btn" data-action="invite" data-via="copy">Скопировать ссылку</button>
     </div>
     ${flashHtml('invite')}
@@ -497,7 +498,7 @@ function renderChallenges() {
       <div class="or">${targets.length ? 'или отправьте вызов тому, кого ещё нет в приложении' : 'Отправьте вызов другу — даже если его ещё нет в приложении'}</div>
       <div class="row">
         <button class="btn whatsapp" type="button" data-action="ch-invite" data-via="whatsapp">WhatsApp</button>
-        ${navigator.share ? `<button class="btn" type="button" data-action="ch-invite" data-via="share">Поделиться…</button>` : ''}
+        ${canShareText() ? `<button class="btn" type="button" data-action="ch-invite" data-via="share">Поделиться…</button>` : ''}
         <button class="btn" type="button" data-action="ch-invite" data-via="copy">Скопировать ссылку</button>
       </div>
       ${flashHtml('challenge')}
@@ -589,7 +590,10 @@ function streakImage(name, n) {
   return (imageCache[key] = c.toDataURL('image/png'));
 }
 
+function canShareText() { return isNative || !!navigator.share; }
+
 function canShareFiles() {
+  if (isNative) return true;
   try { return !!navigator.canShare && navigator.canShare({ files: [new File([''], 'a.png', { type: 'image/png' })] }); } catch (err) { return false; }
 }
 
@@ -601,7 +605,7 @@ async function dataUrlToFile(url, filename) {
 function shareStreak(via, h) {
   const n = streaks(h).current;
   // Ссылка-вызов, если есть аккаунт; иначе — просто ссылка на приложение.
-  let url = location.origin + location.pathname;
+  let url = appUrl();
   if (social.user && social.profile) {
     const inv = cloud.createInvite(h.name, 21);
     inv.saved.catch(err => console.error(err));
@@ -611,17 +615,18 @@ function shareStreak(via, h) {
   const img = streakImage(h.name, n);
   const file = `seriya-${n}.png`;
   if (via === 'image') {
-    dataUrlToFile(img, file).then(f => navigator.share({ files: [f], text })).catch(() => {});
+    if (isNative) nativeShare({ text, imageDataUrl: img, filename: file }).catch(err => console.error(err));
+    else dataUrlToFile(img, file).then(f => navigator.share({ files: [f], text })).catch(() => {});
   } else if (via === 'whatsapp') {
-    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
+    openExternal('https://wa.me/?text=' + encodeURIComponent(text));
   } else if (via === 'share') {
-    navigator.share({ text }).catch(() => {});
+    (isNative ? nativeShare({ text }) : navigator.share({ text })).catch(() => {});
   } else if (via === 'download') {
     const a = document.createElement('a');
     a.href = img; a.download = file; a.click();
     flash.share = { text: 'Картинка сохранена — добавьте её в сторис или пост и приложите ссылку из «Скопировать текст».' };
   } else {
-    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+    copyText(text)
       .then(() => { flash.share = { text: 'Текст со ссылкой скопирован.' }; render(); })
       .catch(() => { flash.share = { text }; render(); });
   }
@@ -798,13 +803,13 @@ function shareInvite(via, flashKey, habitName = null, days = null) {
   const text = inviteText(habitName, days, inv.url);
   inv.saved.catch(err => { console.error(err); flash[flashKey] = { text: 'Не удалось сохранить приглашение. Попробуйте ещё раз.', error: true }; render(); });
   if (via === 'whatsapp') {
-    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
+    openExternal('https://wa.me/?text=' + encodeURIComponent(text));
     flash[flashKey] = { text: 'Открываем WhatsApp… Выберите, кому отправить.' };
   } else if (via === 'share') {
-    navigator.share({ text }).catch(() => {});
+    (isNative ? nativeShare({ text }) : navigator.share({ text })).catch(() => {});
     flash[flashKey] = null;
   } else {
-    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+    copyText(text)
       .then(() => { flash[flashKey] = { text: 'Ссылка скопирована — вставьте её в любой мессенджер.' }; render(); })
       .catch(() => { flash[flashKey] = { text: 'Скопируйте ссылку: ' + inv.url }; render(); });
   }
@@ -1021,6 +1026,14 @@ $('quoteClose').addEventListener('click', hideQuote);
 $('quote').addEventListener('click', ev => { if (ev.target.id === 'quote') hideQuote(); });
 document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !$('quote').hidden) hideQuote(); });
 showQuote();
+
+// Кнопка «Назад» на Android: сначала закрываем открытое, потом возвращаемся на главную.
+onBackButton(() => {
+  if (!$('quote').hidden) { hideQuote(); return true; }
+  if (sharing || editingGoal || renaming || tourOpen) { sharing = editingGoal = tourOpen = null; renaming = false; render(); return true; }
+  if (tab !== 'habits') { goTab('habits'); return true; }
+  return false;
+});
 
 // Пока привычек нет — сразу показываем готовый список.
 $('catalog').open = !state.habits.length;

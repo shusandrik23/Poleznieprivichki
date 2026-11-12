@@ -1,0 +1,8 @@
+{
+  "appId": "com.poleznieprivychki.app",
+  "appName": "Полезные привычки",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#f6f5f1"
+  }
+}

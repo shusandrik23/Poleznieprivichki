@@ -1,0 +1,43 @@
+# Сборка Android-приложения (отладочный APK) при каждом обновлении ветки.
+# Готовый файл: вкладка Actions → последний запуск «Android APK» → Artifacts → poleznie-privychki-debug.
+name: Android APK
+
+on:
+  push:
+    paths-ignore:
+      - 'README.md'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Сборка веб-части и перенос в Android
+        run: npm run sync
+
+      - name: Сборка APK
+        working-directory: android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: poleznie-privychki-debug
+          path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
