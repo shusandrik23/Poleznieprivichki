@@ -24,21 +24,33 @@ export function todayNumber() {
 
 // Максимальная серия, текущая серия и последний день текущей серии.
 // Текущая серия не обрывается, если сегодня ещё не отмечено, — считается до вчера.
+// Замороженные дни (habit.frozen) не дают серии прерваться, но сами в неё не засчитываются.
 export function streaks(habit, todayKey = dateKey(new Date())) {
-  const days = Object.keys(habit.done).filter(k => habit.done[k]).map(dayNumber).sort((a, b) => a - b);
+  const done = new Set(Object.keys(habit.done).filter(k => habit.done[k]).map(dayNumber));
+  const frozen = new Set(Object.keys(habit.frozen || {}).filter(k => habit.frozen[k]).map(dayNumber));
+  const marked = [...new Set([...done, ...frozen])].sort((a, b) => a - b);
   let best = 0, run = 0, prev = null;
-  for (const n of days) {
-    run = (prev !== null && n === prev + 1) ? run + 1 : 1;
+  for (const n of marked) {
+    if (prev === null || n !== prev + 1) run = 0;
+    if (done.has(n)) run++;
     best = Math.max(best, run);
     prev = n;
   }
-  const set = new Set(days);
+  const has = n => done.has(n) || frozen.has(n);
   let cursor = dayNumber(todayKey);
-  if (!set.has(cursor)) cursor -= 1;
+  if (!has(cursor)) cursor -= 1;
   const end = cursor;
   let current = 0;
-  while (set.has(cursor)) { current++; cursor--; }
+  while (has(cursor)) { if (done.has(cursor)) current++; cursor--; }
   return { best, current, end };
+}
+
+// Можно ли спасти серию заморозкой: вчера пропущено, а позавчера серия ещё шла.
+export function canFreezeYesterday(habit, todayKey = dateKey(new Date())) {
+  const today = dayNumber(todayKey);
+  const key = n => dayKeyFromNumber(n);
+  const marked = n => habit.done[key(n)] || habit.frozen?.[key(n)];
+  return !marked(today - 1) && !!marked(today - 2);
 }
 
 // Текущая серия друга по сохранённым данным: если серия закончилась раньше вчерашнего дня — она прервана.

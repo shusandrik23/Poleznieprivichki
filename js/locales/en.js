@@ -18,6 +18,15 @@ export default {
   'habits.hint': 'Tap the circle to check off a habit for today. Use the days at the bottom of a card to fix past days.',
   'quote.start': 'Start the day',
 
+  'puzzle.title': 'Puzzle',
+  'puzzle.note': 'Open the app every day: 7 puzzle pieces = 1 freeze ❄️ that saves a goal streak if you miss a day.',
+  'puzzle.piece': '🧩 +1 puzzle piece for visiting today! {n} of 7 collected.',
+  'puzzle.complete': '🎉 Puzzle complete! You got a freeze ❄️ — it saves a goal streak if you miss a day.',
+  'puzzle.freezes': '❄️ Freezes: {n}',
+  'freeze.use': '❄️ Missed yesterday — save the streak with a freeze ({n} left)',
+  'freeze.none': 'You missed yesterday and the streak broke. Complete the puzzle 🧩 to get a freeze for next time.',
+  'day.frozen': 'Frozen ❄️ — tap to mark as done',
+
   'common.save': 'Save',
   'common.saved': 'Saved.',
   'common.cancel': 'Cancel',

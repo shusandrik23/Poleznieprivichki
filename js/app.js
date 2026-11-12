@@ -1,4 +1,4 @@
-import { dateKey, streaks, liveStreak, challengeProgress, todayNumber, escapeHtml as e } from './core.js';
+import { dateKey, dayKeyFromNumber, streaks, canFreezeYesterday, liveStreak, challengeProgress, todayNumber, escapeHtml as e } from './core.js';
 import * as cloud from './cloud.js';
 import { social } from './cloud.js';
 import { t, pw, num, lang, setLang, locale, LANGS } from './i18n.js';
@@ -82,8 +82,56 @@ function addHabit(name, { silent } = {}) {
 function toggle(id, key) {
   const h = state.habits.find(x => x.id === id);
   if (!h) return;
-  if (h.done[key]) delete h.done[key]; else h.done[key] = true;
+  if (h.frozen?.[key]) {           // замороженный день отмечаем выполненным — заморозка возвращается
+    delete h.frozen[key];
+    rewards().freezes++;
+    h.done[key] = true;
+  } else if (h.done[key]) delete h.done[key];
+  else h.done[key] = true;
   save(); render();
+}
+
+// ---------- Пазл и заморозки ----------
+
+const PUZZLE_SIZE = 7;
+function rewards() { return (state.rewards ||= { pieces: 0, freezes: 0, lastVisit: null }); }
+
+// Кусочек пазла за каждый день, когда человек открыл приложение. 7 кусочков — заморозка.
+function dailyVisit() {
+  const r = rewards();
+  const today = dateKey(new Date());
+  if (r.lastVisit === today) return;
+  r.lastVisit = today;
+  r.pieces++;
+  if (r.pieces >= PUZZLE_SIZE) {
+    r.pieces = 0;
+    r.freezes++;
+    flash.puzzle = { text: t('puzzle.complete'), big: true };
+  } else {
+    flash.puzzle = { text: t('puzzle.piece', { n: r.pieces }) };
+  }
+  save();
+}
+
+// Заморозить вчерашний пропуск, чтобы серия не прервалась.
+function useFreeze(id) {
+  const h = state.habits.find(x => x.id === id);
+  const r = rewards();
+  if (!h || r.freezes < 1 || !canFreezeYesterday(h)) return;
+  (h.frozen ||= {})[dayKeyFromNumber(todayNumber() - 1)] = true;
+  r.freezes--;
+  flash.puzzle = null;
+  save(); render();
+}
+
+function puzzleHtml() {
+  const r = rewards();
+  const slots = Array.from({ length: PUZZLE_SIZE }, (_, i) => `<span class="piece${i < r.pieces ? ' on' : ''}">${i < r.pieces ? '🧩' : ''}</span>`).join('');
+  return `<div class="puzzle-row">
+      <div class="pieces" title="${r.pieces} / ${PUZZLE_SIZE}"><span class="ptitle">${t('puzzle.title')}</span>${slots}</div>
+      <span class="freezes">${t('puzzle.freezes', { n: r.freezes })}</span>
+    </div>
+    ${flash.puzzle ? `<p class="puzzle-msg${flash.puzzle.big ? ' big' : ''}">${e(flash.puzzle.text)}</p>` : `<p class="small">${t('puzzle.note')}</p>`}`;
 }
 
 function removeHabit(id) {
@@ -211,6 +259,13 @@ function renderHabits() {
       </div>
       <div class="stats"><span>${t('stats.current', { n: current, days: pw(current, 'day') })}</span><span>${t('stats.best', { n: best, days: pw(best, 'day') })}</span></div>`;
 
+    // Заморозка: вчера пропущено — можно спасти серию цели
+    if (h.goal && canFreezeYesterday(h, todayKey)) {
+      html += rewards().freezes > 0
+        ? `<button class="freeze-btn" data-action="freeze" data-id="${h.id}">${t('freeze.use', { n: rewards().freezes })}</button>`
+        : `<p class="freeze-hint">${t('freeze.none')}</p>`;
+    }
+
     // Заметная кнопка «Поставить цель», пока цели нет
     if (!h.goal && editingGoal !== h.id) {
       html += `<button class="goal-btn" data-action="goal-edit" data-id="${h.id}">${t('goal.setBtn')}</button>`;
@@ -256,13 +311,17 @@ function renderHabits() {
       html += `<div class="friends-line">👥 ${fr.map(f => `${e(f.name)} <b>${f.cur}</b>`).join(' · ')}</div>`;
     }
 
-    html += `<div class="week">${week.map(d => `<button class="day${h.done[d.key] ? ' on' : ''}${d.key === todayKey ? ' today' : ''}" data-action="toggle" data-id="${h.id}" data-day="${d.key}" title="${h.done[d.key] ? t('day.done') : t('day.notDone')}"><span>${d.label}</span>${d.num}</button>`).join('')}</div></li>`;
+    html += `<div class="week">${week.map(d => {
+      const fz = !h.done[d.key] && h.frozen?.[d.key];
+      return `<button class="day${h.done[d.key] ? ' on' : ''}${fz ? ' frozen' : ''}${d.key === todayKey ? ' today' : ''}" data-action="toggle" data-id="${h.id}" data-day="${d.key}" title="${fz ? t('day.frozen') : h.done[d.key] ? t('day.done') : t('day.notDone')}"><span>${d.label}</span>${fz ? '❄️' : d.num}</button>`;
+    }).join('')}</div></li>`;
     return html;
   });
 
   setHTML($('list'), items.length ? items.join('') : `<li class="empty">${t('habits.empty')}</li>`);
 
   const total = state.habits.length;
+  $('puzzle').innerHTML = puzzleHtml();
   $('progress').hidden = !total;
   $('fill').style.width = total ? (doneCount / total * 100) + '%' : '0';
   $('progressText').textContent = total
@@ -890,6 +949,7 @@ document.addEventListener('click', ev => {
     case 'remove': removeHabit(id); break;
     case 'add': addHabit(el.dataset.name); break;
     case 'next-fact': factOffset++; render(); break;
+    case 'freeze': useFreeze(id); break;
     case 'limit-invite': flash.goal = null; editingGoal = null; goTab('friends'); setTimeout(() => document.querySelector('.invite-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50); break;
     case 'goal-edit': editingGoal = editingGoal === id ? null : id; flash.goal = null; render(); break;
     case 'goal-set': setGoal(id, el.dataset.days ? Number(el.dataset.days) : null); break;
@@ -1039,8 +1099,8 @@ document.addEventListener('submit', ev => {
 
 // Перерисовываем при смене дня, если вкладка открыта через полночь.
 let lastKey = dateKey(new Date());
-setInterval(() => { const k = dateKey(new Date()); if (k !== lastKey) { lastKey = k; factOffset = 0; render(); } }, 60000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); showQuote(); } });
+setInterval(() => { const k = dateKey(new Date()); if (k !== lastKey) { lastKey = k; factOffset = 0; dailyVisit(); render(); } }, 60000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { dailyVisit(); render(); showQuote(); } });
 
 // Цитата дня — при первом запуске за день.
 function fillQuote() {
@@ -1076,6 +1136,7 @@ onBackButton(() => {
 
 // Пока привычек нет — сразу показываем готовый список.
 $('catalog').open = !state.habits.length;
+dailyVisit();
 render();
 
 cloud.initCloud({

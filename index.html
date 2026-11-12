@@ -242,6 +242,23 @@
   }
   .goal-btn:hover { filter: brightness(1.05); }
   .goal-edit-link { border: 0; background: none; color: var(--accent); font-weight: 600; font-size: 13px; padding: 0 0 0 6px; text-decoration: underline; }
+  .puzzle { padding: 10px 14px; margin-bottom: 12px; }
+  .puzzle p { margin: 6px 0 0; }
+  .puzzle-row { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+  .pieces { display: flex; gap: 4px; align-items: center; }
+  .ptitle { font-weight: 600; font-size: 14px; margin-right: 4px; }
+  .piece { width: 28px; height: 28px; border-radius: 7px; border: 1px dashed var(--line); display: grid; place-items: center; font-size: 16px; }
+  .piece.on { border: 1px solid var(--accent); background: var(--accent-soft); }
+  .freezes { font-weight: 600; font-size: 14px; white-space: nowrap; }
+  .puzzle-msg { font-size: 14px; color: var(--accent); font-weight: 600; }
+  .puzzle-msg.big { font-size: 15px; }
+  .freeze-btn {
+    grid-column: 1 / -1; justify-self: start; margin-top: 8px;
+    border: 1px solid #5aa9e6; background: #e8f4fd; color: #1d5f8f;
+    border-radius: 999px; padding: 6px 14px; font-size: 14px; font-weight: 600;
+  }
+  .freeze-hint { grid-column: 1 / -1; margin: 8px 0 0; font-size: 13px; color: var(--muted); }
+  .day.frozen { background: #e8f4fd; border-color: #5aa9e6; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -263,6 +280,7 @@
 
   <section class="view" id="view-habits">
     <div class="card tour-banner" id="tourBanner" hidden></div>
+    <div class="card puzzle" id="puzzle"></div>
     <div class="progress" id="progress">
       <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
       <div class="progress-text" id="progressText"></div>

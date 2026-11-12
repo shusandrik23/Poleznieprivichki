@@ -171,7 +171,7 @@ async function onUser(user) {
     social.settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
     social.joined = data.tournaments || [];
     if (data.client !== clientId && data.habits) {
-      hooks.setState({ habits: data.habits });  // изменения с другого устройства
+      hooks.setState({ habits: data.habits, rewards: data.rewards || hooks.getState().rewards });  // изменения с другого устройства
       syncChallenges();
     }
     changed();
@@ -230,7 +230,10 @@ function mergeStates(remote, local) {
       out.push({ ...lh, done: { ...lh.done } });
     }
   }
-  return { habits: out };
+  // Пазл: берём ту копию, где собрано больше (заморозки × 7 + кусочки).
+  const score = r => r ? (r.freezes || 0) * 7 + (r.pieces || 0) : -1;
+  const rewards = score(remote.rewards) >= score(local.rewards) ? remote.rewards : local.rewards;
+  return { habits: out, ...(rewards ? { rewards } : {}) };
 }
 
 // ---------- Сохранение ----------
@@ -258,7 +261,7 @@ async function pushNow() {
   const { showName, realName, discoverable } = social.settings;
   try {
     const batch = fb.writeBatch(db);
-    batch.set(fb.doc(db, 'users', uid), { habits: state.habits, client: clientId, updatedAt: fb.serverTimestamp() }, { merge: true });
+    batch.set(fb.doc(db, 'users', uid), { habits: state.habits, rewards: state.rewards || null, client: clientId, updatedAt: fb.serverTimestamp() }, { merge: true });
     // Друзья видят серии и (если разрешено) настоящее имя.
     batch.set(fb.doc(db, 'stats', uid), { habits: stats, realName: showName ? realName : '', updatedAt: fb.serverTimestamp() });
     // Поиск единомышленников: только ник и серии, и только если человек согласился.
