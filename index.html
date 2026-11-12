@@ -17,6 +17,7 @@
     --radius: 14px;
   }
   @media (prefers-color-scheme: dark) {
+    .tour-banner { background: #3a3218 !important; border-color: #6b5a26 !important; color: #f3e6bf !important; }
     :root {
       --bg: #15171a;
       --card: #1e2125;
@@ -192,6 +193,21 @@
   .btn.whatsapp { background: #25d366; border-color: #25d366; color: #fff; }
   .invite-banner { border: 2px solid var(--accent); margin-top: 16px; }
   .invite-note { margin: 16px 0 8px; }
+  .share-panel img.share-img { width: 100%; max-width: 280px; display: block; margin: 0 auto 10px; border-radius: 12px; }
+  .tour-banner { margin: 4px 0 12px; background: #fff6dc; border-color: #f0d68a; color: #3d3210; font-size: 15px; }
+  .tour.joined { border-color: var(--accent); }
+  .tour-habit { font-weight: 600; margin: 6px 0 2px; }
+  .tag { font-size: 12px; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--text); white-space: nowrap; }
+  .tour-actions { margin-top: 10px; justify-content: space-between; }
+  ol.board { margin: 10px 0 0; padding-left: 22px; font-size: 14px; }
+  ol.board li { padding: 4px 0; border-bottom: 1px solid var(--line); }
+  ol.board li > span { display: inline-flex; }
+  ol.board li { display: list-item; }
+  ol.board li span:last-child { float: right; color: var(--muted); }
+  ol.board li.me { font-weight: 700; }
+  h2.section.first { margin-top: 8px; }
+  .inline-select { width: auto !important; padding: 6px 10px !important; }
+  .person .chips { margin-top: 6px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -212,6 +228,7 @@
   </nav>
 
   <section class="view" id="view-habits">
+    <div class="card tour-banner" id="tourBanner" hidden></div>
     <div class="progress" id="progress">
       <div class="progress-bar"><div class="progress-fill" id="fill"></div></div>
       <div class="progress-text" id="progressText"></div>

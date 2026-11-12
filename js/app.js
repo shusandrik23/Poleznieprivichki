@@ -2,6 +2,7 @@ import { dateKey, streaks, liveStreak, habitKey, challengeProgress, todayNumber,
 import * as cloud from './cloud.js';
 import { social } from './cloud.js';
 import { factFor } from './facts.js';
+import { tournamentsAround, tournamentStatus, canJoin } from './tournaments.js';
 
 const STORAGE_KEY = 'habit-trainer-v1';
 const TAB_KEY = 'habit-trainer-tab';
@@ -20,6 +21,7 @@ const GOAL_PRESETS = [7, 21, 30, 66, 100];
 const CHALLENGE_DAYS = [7, 14, 21, 30, 66, 100];
 
 const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
+const SHARE_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3v12"/><path d="M7 8l5-5 5 5"/><path d="M5 13v6a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-6"/></svg>';
 const TARGET_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg>';
 const GOOGLE_SVG = '<svg viewBox="0 0 48 48" width="18" height="18"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
 const APPLE_SVG = '<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M16.4 12.6c0-2.6 2.1-3.8 2.2-3.9-1.2-1.8-3.1-2-3.7-2-1.6-.2-3.1.9-3.9.9-.8 0-2-.9-3.4-.9-1.7 0-3.3 1-4.2 2.6-1.8 3.1-.5 7.7 1.3 10.2.9 1.2 1.9 2.6 3.2 2.5 1.3 0 1.8-.8 3.3-.8 1.6 0 2 .8 3.4.8 1.4 0 2.3-1.3 3.1-2.5 1-1.4 1.4-2.8 1.4-2.9 0 0-2.7-1-2.7-4zM13.9 5c.7-.9 1.2-2 1-3.2-1 0-2.3.7-3 1.6-.7.8-1.2 2-1.1 3.1 1.2.1 2.3-.6 3.1-1.5z"/></svg>';
@@ -45,7 +47,14 @@ try { tab = localStorage.getItem(TAB_KEY) || 'habits'; } catch (err) {}
 let editingGoal = null;     // id привычки с открытым редактором цели
 let renaming = false;       // открыта форма смены ника
 let challengeFriend = '';   // выбранный соперник в форме вызова
+let challengeHabit = '';    // выбранная привычка в форме вызова
 let factOffset = 0;         // «ещё факт»
+let sharing = null;         // id привычки с открытой панелью «поделиться»
+let suggestions = null;     // случайные соперники
+let suggestionsLoading = false;
+let sentTo = {};            // кому уже бросили вызов из подборки
+const tourData = {};        // id турнира → { top, total, myPlace, loading }
+let tourOpen = null;        // турнир с раскрытой таблицей лидеров
 let similar = null;         // результаты поиска единомышленников
 let similarLoading = false;
 let pendingInvite = null;   // { code, data?, status }
@@ -173,6 +182,7 @@ function renderHabits() {
       <button class="check" data-action="toggle" data-id="${h.id}" data-day="${todayKey}" aria-label="${done ? 'Снять отметку' : 'Отметить выполненной'}">${CHECK_SVG}</button>
       <div class="name">${e(h.name)}</div>
       <div class="actions">
+        ${current > 0 ? `<button class="icon-btn${sharing === h.id ? ' active' : ''}" data-action="share-edit" data-id="${h.id}" title="Поделиться серией" aria-label="Поделиться серией">${SHARE_SVG}</button>` : ''}
         <button class="icon-btn${editingGoal === h.id ? ' active' : ''}" data-action="goal-edit" data-id="${h.id}" title="${h.goal ? 'Изменить цель' : 'Поставить цель'}" aria-label="${h.goal ? 'Изменить цель' : 'Поставить цель'}">${TARGET_SVG}</button>
         <button class="icon-btn delete" data-action="remove" data-id="${h.id}" title="Удалить привычку" aria-label="Удалить привычку">×</button>
       </div>
@@ -196,6 +206,21 @@ function renderHabits() {
           <button class="chip" type="submit">Сохранить</button>
           ${h.goal ? `<button class="link-btn" type="button" data-action="goal-set" data-id="${h.id}" data-days="">Убрать цель</button>` : ''}
         </form></div>`;
+    }
+
+    if (sharing === h.id && current > 0) {
+      html += `<div class="panel share-panel">
+        <img class="share-img" src="${streakImage(h.name, current)}" alt="Карточка серии">
+        <p>Похвастайтесь серией и позовите друзей посоревноваться: по ссылке они сразу примут вызов «${e(h.name)}».</p>
+        <div class="row">
+          ${canShareFiles() ? `<button class="btn primary" data-action="share-streak" data-via="image" data-id="${h.id}">Поделиться картинкой</button>` : ''}
+          <button class="btn whatsapp" data-action="share-streak" data-via="whatsapp" data-id="${h.id}">WhatsApp</button>
+          ${navigator.share ? `<button class="btn" data-action="share-streak" data-via="share" data-id="${h.id}">Поделиться…</button>` : ''}
+          <button class="btn" data-action="share-streak" data-via="copy" data-id="${h.id}">Скопировать текст</button>
+          <button class="btn" data-action="share-streak" data-via="download" data-id="${h.id}">Скачать картинку</button>
+        </div>
+        ${flashHtml('share')}
+      </div>`;
     }
 
     const fr = friendsOnHabit(h);
@@ -223,6 +248,16 @@ function renderHabits() {
       ? `<button class="chip added" disabled title="Уже в вашем списке">${e(item)} ✓</button>`
       : `<button class="chip" data-action="add" data-name="${e(item)}" title="Добавить">+ ${e(item)}</button>`).join('')
   }</div></div>`).join('');
+
+  // Анонс турнира, к которому можно присоединиться
+  const today = todayNumber();
+  const tj = cloud.cloudAvailable && tournamentsAround(today).find(t => canJoin(t, today) && !social.joined.includes(t.id));
+  $('tourBanner').hidden = !tj;
+  if (tj) {
+    const st = tournamentStatus(tj, today);
+    $('tourBanner').innerHTML = `<div class="row-between"><div>🏆 <b>${e(tj.title)}</b>${st === 'active' ? ' уже идёт' : ` — ${startWord(tj, today)}`}: ${e(tj.habit)}, ${tj.days} ${plural(tj.days)} подряд</div>
+      <button class="btn primary small-btn" data-action="go-tournaments">Участвовать</button></div>`;
+  }
 
   // Факт дня
   const fact = factFor(todayNumber(), factOffset);
@@ -422,7 +457,7 @@ function progressRow(name, p, ch, today) {
 // Кому можно бросить вызов: друзья и найденные люди.
 function challengeTargets() {
   const out = social.friends.map(f => ({ uid: f.uid, nickname: f.nickname, label: friendLabel(f), group: 'Друзья' }));
-  for (const p of similar || []) {
+  for (const p of [...(suggestions || []), ...(similar || [])]) {
     if (!out.some(t => t.uid === p.uid)) out.push({ uid: p.uid, nickname: p.nickname, label: '@' + p.nickname, group: 'Люди с такими же привычками' });
   }
   return out;
@@ -446,23 +481,23 @@ function renderChallenges() {
     return list.length ? `<optgroup label="${g}">${list.map(t => `<option value="${t.uid}"${t.uid === challengeFriend ? ' selected' : ''}>${e(t.label)}</option>`).join('')}</optgroup>` : '';
   }).join('');
 
-  let html = `<div class="card">
+  const showNew = !habits.length || challengeHabit === '__new';
+  const formHtml = `<div class="card">
     <h2>Бросить вызов</h2>
     <p class="small">Побеждает тот, кто первым выполнит привычку нужное число дней подряд. Пропуск дня — выбываете.</p>
     <form data-form="challenge" class="stack">
-      <label>Привычка${habits.length
-        ? `<select name="habit">${habits.map(h => `<option value="${h.id}">${e(h.name)}</option>`).join('')}</select>`
-        : `<span class="small">Сначала добавьте привычку на вкладке «Мои привычки».</span>`}</label>
+      <label>Привычка<select name="habit">${habits.map(h => `<option value="${h.id}"${h.id === challengeHabit ? ' selected' : ''}>${e(h.name)}</option>`).join('')}
+        <option value="__new"${showNew ? ' selected' : ''}>✏️ Своя новая привычка…</option></select></label>
+      <label class="new-habit"${showNew ? '' : ' hidden'}>Название привычки<input name="newHabit" maxlength="80" placeholder="например, «Холодный душ» или «Не есть после 19:00»" autocomplete="off"></label>
       <label>Сколько дней подряд<select name="days">${CHALLENGE_DAYS.map(n => `<option value="${n}"${n === 21 ? ' selected' : ''}>${n} ${plural(n)}</option>`).join('')}</select></label>
       ${targets.length ? `<label>Соперник<select name="friend">${groupsHtml}</select></label>
-        <button class="btn primary" type="submit"${habits.length ? '' : ' disabled'}>⚔️ Бросить вызов</button>` : ''}
+        <button class="btn primary" type="submit">⚔️ Бросить вызов</button>` : ''}
       <div class="or">${targets.length ? 'или отправьте вызов тому, кого ещё нет в приложении' : 'Отправьте вызов другу — даже если его ещё нет в приложении'}</div>
       <div class="row">
-        <button class="btn whatsapp" type="button" data-action="ch-invite" data-via="whatsapp"${habits.length ? '' : ' disabled'}>WhatsApp</button>
-        ${navigator.share ? `<button class="btn" type="button" data-action="ch-invite" data-via="share"${habits.length ? '' : ' disabled'}>Поделиться…</button>` : ''}
-        <button class="btn" type="button" data-action="ch-invite" data-via="copy"${habits.length ? '' : ' disabled'}>Скопировать ссылку</button>
+        <button class="btn whatsapp" type="button" data-action="ch-invite" data-via="whatsapp">WhatsApp</button>
+        ${navigator.share ? `<button class="btn" type="button" data-action="ch-invite" data-via="share">Поделиться…</button>` : ''}
+        <button class="btn" type="button" data-action="ch-invite" data-via="copy">Скопировать ссылку</button>
       </div>
-      ${!targets.length ? `<p class="small">Или <button class="link-btn" type="button" data-action="go-friends">найдите соперника</button> среди людей с такими же привычками.</p>` : ''}
       ${flashHtml('challenge')}
     </form></div>`;
 
@@ -508,11 +543,189 @@ function renderChallenges() {
       <button class="link-btn" data-action="ch-delete" data-id="${ch.id}">${finished ? 'Убрать' : 'Сдаться и удалить вызов'}</button>
     </div>`);
   }
-  if (groups.incoming.length) html += `<h2 class="section">Вам бросили вызов</h2>${groups.incoming.join('')}`;
+  let html = '';
+  if (groups.incoming.length) html += `<h2 class="section first">Вам бросили вызов</h2>${groups.incoming.join('')}`;
+  html += tournamentsHtml(today);
+  html += `<h2 class="section">⚔️ Вызовы</h2>` + suggestionsHtml(today) + formHtml;
   if (groups.active.length) html += `<h2 class="section">Идут сейчас</h2>${groups.active.join('')}`;
   if (groups.waiting.length) html += `<h2 class="section">Ждут ответа</h2>${groups.waiting.join('')}`;
   if (groups.done.length) html += `<h2 class="section">Завершённые</h2>${groups.done.join('')}`;
   setHTML(el, html);
+}
+
+// ---------- Поделиться серией ----------
+
+const imageCache = {};
+function streakImage(name, n) {
+  const key = name + '|' + n;
+  if (imageCache[key]) return imageCache[key];
+  const W = 1080, H = 1350;
+  const c = document.createElement('canvas');
+  c.width = W; c.height = H;
+  const g = c.getContext('2d');
+  const grad = g.createLinearGradient(0, 0, W, H);
+  grad.addColorStop(0, '#1f8f5f'); grad.addColorStop(1, '#0f5c3c');
+  g.fillStyle = grad; g.fillRect(0, 0, W, H);
+  g.fillStyle = 'rgba(255,255,255,.08)';
+  g.beginPath(); g.arc(W - 120, 160, 260, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(120, H - 140, 200, 0, Math.PI * 2); g.fill();
+  const font = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
+  g.fillStyle = '#fff'; g.textAlign = 'center';
+  g.font = `200px ${font}`; g.fillText('🔥', W / 2, 330);
+  g.font = `bold 300px ${font}`; g.fillText(String(n), W / 2, 640);
+  g.font = `600 64px ${font}`; g.fillText(`${plural(n)} подряд`, W / 2, 740);
+  // название привычки, переносим по словам
+  g.font = `bold 64px ${font}`;
+  const words = name.split(' '); const lines = []; let line = '';
+  for (const w of words) { const t = line ? line + ' ' + w : w; if (g.measureText(t).width > W - 160 && line) { lines.push(line); line = w; } else line = t; }
+  lines.push(line);
+  lines.slice(0, 3).forEach((l, i) => g.fillText(l, W / 2, 880 + i * 80));
+  g.font = `600 56px ${font}`; g.fillStyle = '#ffe08a';
+  g.fillText('Сможешь побить мой рекорд?', W / 2, 1130);
+  g.font = `40px ${font}`; g.fillStyle = 'rgba(255,255,255,.85)';
+  g.fillText('Полезные привычки — трекер серий', W / 2, 1250);
+  return (imageCache[key] = c.toDataURL('image/png'));
+}
+
+function canShareFiles() {
+  try { return !!navigator.canShare && navigator.canShare({ files: [new File([''], 'a.png', { type: 'image/png' })] }); } catch (err) { return false; }
+}
+
+async function dataUrlToFile(url, filename) {
+  const blob = await (await fetch(url)).blob();
+  return new File([blob], filename, { type: 'image/png' });
+}
+
+function shareStreak(via, h) {
+  const n = streaks(h).current;
+  // Ссылка-вызов, если есть аккаунт; иначе — просто ссылка на приложение.
+  let url = location.origin + location.pathname;
+  if (social.user && social.profile) {
+    const inv = cloud.createInvite(h.name, 21);
+    inv.saved.catch(err => console.error(err));
+    url = inv.url;
+  }
+  const text = `🔥 ${n} ${plural(n)} подряд: «${h.name}»! Давай соревноваться — кто продержится 21 день? ${url}`;
+  const img = streakImage(h.name, n);
+  const file = `seriya-${n}.png`;
+  if (via === 'image') {
+    dataUrlToFile(img, file).then(f => navigator.share({ files: [f], text })).catch(() => {});
+  } else if (via === 'whatsapp') {
+    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
+  } else if (via === 'share') {
+    navigator.share({ text }).catch(() => {});
+  } else if (via === 'download') {
+    const a = document.createElement('a');
+    a.href = img; a.download = file; a.click();
+    flash.share = { text: 'Картинка сохранена — добавьте её в сторис или пост и приложите ссылку из «Скопировать текст».' };
+  } else {
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+      .then(() => { flash.share = { text: 'Текст со ссылкой скопирован.' }; render(); })
+      .catch(() => { flash.share = { text }; render(); });
+  }
+  render();
+}
+
+// ---------- Турниры ----------
+
+function dayLabel(n) { return new Date(n * 86400000).toLocaleDateString('ru-RU', { weekday: 'long', day: 'numeric', month: 'long', timeZone: 'UTC' }); }
+function shortDay(n) { return new Date(n * 86400000).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', timeZone: 'UTC' }); }
+
+function startWord(t, today) {
+  const d = t.startDay - today;
+  if (d === 0) return 'старт сегодня';
+  if (d === 1) return 'старт завтра';
+  const label = dayLabel(t.startDay);
+  return (label.startsWith('вторник') ? 'старт во ' : 'старт в ') + label.replace(/^(среда|пятница|суббота)/, m => m.slice(0, -1) + 'у');
+}
+
+function loadTour(t) {
+  if (tourData[t.id]?.loading) return;
+  tourData[t.id] = { ...(tourData[t.id] || {}), loading: true };
+  cloud.loadLeaderboard(t)
+    .then(d => { tourData[t.id] = { ...d, loading: false }; })
+    .catch(err => { console.error(err); tourData[t.id] = { loading: false, error: true }; })
+    .finally(render);
+}
+
+function tournamentsHtml(today) {
+  const list = tournamentsAround(today);
+  let html = `<h2 class="section">🏆 Турниры</h2>`;
+  for (const t of list) {
+    const st = tournamentStatus(t, today);
+    const joined = social.joined.includes(t.id);
+    const data = tourData[t.id];
+    if (!data) loadTour(t);
+    const mine = joined ? challengeProgress(findHabit(t.habit), t.startDay, t.days, today) : null;
+    const end = t.startDay + t.days - 1;
+    let status = st === 'upcoming' ? startWord(t, today) : st === 'active' ? `идёт: день ${today - t.startDay + 1} из ${t.days}` : 'завершён';
+    let mineHtml = '';
+    if (joined && st !== 'upcoming') {
+      const failed = !mine.completed && t.startDay + mine.count < today;
+      mineHtml = `<div class="prow${mine.completed ? ' win' : ''}${failed ? ' out' : ''}"><div class="row-between"><span>Вы</span>
+        <span class="small">${mine.count} / ${t.days} · ${mine.completed ? 'выполнено 🏆' : failed ? 'выбыли — пропущен день' : 'в игре'}${data?.myPlace ? ` · ${data.myPlace} место` : ''}</span></div>
+        <div class="bar"><div class="fill" style="width:${mine.count / t.days * 100}%"></div></div></div>`;
+    }
+    html += `<div class="card tour${joined ? ' joined' : ''}">
+      <div class="row-between"><div class="ch-title">${e(t.title)}</div><span class="tag">${status}</span></div>
+      <div class="tour-habit">${e(t.habit)} · ${t.days} ${plural(t.days)} подряд</div>
+      <div class="small">${shortDay(t.startDay)} — ${shortDay(end)} · ${e(t.text)}</div>
+      <div class="small">Участников: <b>${data && !data.loading && !data.error ? data.total : '…'}</b></div>
+      ${mineHtml}
+      <div class="row tour-actions">
+        ${joined
+          ? `<span class="small">✓ Вы участвуете</span>${st === 'upcoming' ? `<button class="link-btn" data-action="tour-leave" data-id="${t.id}">Отменить участие</button>` : ''}`
+          : canJoin(t, today) ? `<button class="btn primary small-btn" data-action="tour-join" data-id="${t.id}">Участвовать</button>`
+          : st !== 'finished' ? '<span class="small">Регистрация закрыта — ждите следующий турнир</span>' : ''}
+        <button class="link-btn" data-action="tour-board" data-id="${t.id}">${tourOpen === t.id ? 'Скрыть таблицу' : 'Таблица лидеров'}</button>
+      </div>
+      ${tourOpen === t.id ? leaderboardHtml(t, data) : ''}
+    </div>`;
+  }
+  return html + flashHtml('tour');
+}
+
+function leaderboardHtml(t, data) {
+  if (!data || data.loading) return '<p class="small">Загружаем…</p>';
+  if (data.error) return '<p class="small">Не удалось загрузить таблицу.</p>';
+  if (!data.top.length) return '<p class="small">Пока никто не участвует — будьте первым!</p>';
+  const me = social.user.uid;
+  return `<ol class="board">${data.top.map(p => `<li class="${p.uid === me ? 'me' : ''}"><span>@${e(p.nickname)}</span>
+    <span>${p.count} / ${t.days}${p.count >= t.days ? ' 🏆' : ''}</span></li>`).join('')}</ol>
+    ${data.myPlace && data.myPlace > 10 ? `<p class="small">Ваше место: ${data.myPlace} из ${data.total}</p>` : ''}`;
+}
+
+// ---------- Подбор соперников ----------
+
+function loadSuggestions() {
+  if (suggestionsLoading) return;
+  suggestionsLoading = true;
+  cloud.suggestOpponents(5)
+    .then(list => { suggestions = list; })
+    .catch(err => { console.error(err); suggestions = []; })
+    .finally(() => { suggestionsLoading = false; render(); });
+}
+
+function suggestionsHtml(today) {
+  if (!state.habits.length) return '';
+  if (suggestions === null) loadSuggestions();
+  let html = `<div class="card">
+    <div class="row-between"><h2>Соперники для вас</h2>
+      <button class="link-btn" data-action="suggest-more"${suggestionsLoading ? ' disabled' : ''}>🔀 Другие</button></div>
+    <p class="small">Случайные люди с такими же привычками. Бросьте вызов — кто продержится дольше?</p>
+    <div class="row"><span class="small">Срок вызова:</span>
+      <select class="inline-select" id="suggestDays">${CHALLENGE_DAYS.map(n => `<option value="${n}"${n === 7 ? ' selected' : ''}>${n} ${plural(n)}</option>`).join('')}</select></div>`;
+  if (suggestionsLoading && !suggestions) html += '<p class="small">Ищем…</p>';
+  else if (!suggestions?.length) html += '<p class="small">Пока никого с такими же привычками. Загляните позже или пригласите друзей по ссылке.</p>';
+  for (const p of suggestions || []) {
+    html += `<div class="person"><div class="row-between"><b>@${e(p.nickname)}</b></div>
+      <div class="chips">${p.common.map(h => {
+        const c = liveStreak(h, today), k = p.uid + '|' + h.key;
+        return sentTo[k] ? `<span class="chip added">✓ ${e(h.name)} — вызов отправлен</span>`
+          : `<button class="chip" data-action="suggest-challenge" data-uid="${p.uid}" data-key="${e(h.key)}">⚔️ ${e(h.name)} · серия ${c} ${plural(c)}</button>`;
+      }).join('')}</div></div>`;
+  }
+  return html + flashHtml('suggest') + '</div>';
 }
 
 // ---------- Приглашения по ссылке ----------
@@ -598,6 +811,17 @@ function shareInvite(via, flashKey, habitName = null, days = null) {
 
 // ---------- События ----------
 
+// Привычка из формы вызова: выбранная из списка или новая, придуманная пользователем.
+function formHabitName(form) {
+  if (form.habit.value !== '__new') return state.habits.find(h => h.id === form.habit.value)?.name || null;
+  const name = form.newHabit.value.trim();
+  if (!name) { flash.challenge = { text: 'Впишите название привычки.', error: true }; render(); return null; }
+  if (!findHabit(name)) addHabit(name, { silent: true });
+  const h = findHabit(name);
+  challengeHabit = h.id;
+  return h.name;
+}
+
 async function run(key, fn) {
   try {
     const msg = await fn();
@@ -660,8 +884,40 @@ document.addEventListener('click', ev => {
     case 'go-friends': goTab('friends'); break;
     case 'ch-invite': {
       const form = t.closest('form');
-      const habit = state.habits.find(h => h.id === form.habit?.value);
-      if (habit) shareInvite(t.dataset.via, 'challenge', habit.name, Number(form.days.value));
+      const name = formHabitName(form);
+      if (name) shareInvite(t.dataset.via, 'challenge', name, Number(form.days.value));
+      break;
+    }
+    case 'share-edit': sharing = sharing === id ? null : id; flash.share = null; render(); break;
+    case 'share-streak': { const h = state.habits.find(x => x.id === id); if (h) shareStreak(t.dataset.via, h); break; }
+    case 'go-tournaments': goTab('challenges'); break;
+    case 'tour-join': {
+      const tr = tournamentsAround(todayNumber()).find(x => x.id === id);
+      if (tr) run('tour', async () => { await cloud.joinTournament(tr, name => addHabit(name, { silent: true })); loadTour(tr); return `Вы участвуете в турнире «${tr.title}». Удачи! 💪`; });
+      break;
+    }
+    case 'tour-leave': {
+      const tr = tournamentsAround(todayNumber()).find(x => x.id === id);
+      if (tr && confirm('Отменить участие в турнире?')) run('tour', async () => { await cloud.leaveTournament(tr); loadTour(tr); });
+      break;
+    }
+    case 'tour-board': {
+      tourOpen = tourOpen === id ? null : id;
+      const tr = tournamentsAround(todayNumber()).find(x => x.id === id);
+      if (tourOpen && tr) loadTour(tr);
+      render();
+      break;
+    }
+    case 'suggest-more': suggestions = null; sentTo = {}; render(); break;
+    case 'suggest-challenge': {
+      const p = suggestions?.find(x => x.uid === t.dataset.uid);
+      const mine = state.habits.find(h => habitKey(h.name) === t.dataset.key);
+      const days = Number($('suggestDays')?.value || 7);
+      if (p && mine) run('suggest', async () => {
+        await cloud.createChallenge(p, mine.name, days);
+        sentTo[p.uid + '|' + t.dataset.key] = true;
+        return `Вызов отправлен @${p.nickname}! Когда соперник примет его, вызов появится в «Идут сейчас».`;
+      });
       break;
     }
     case 'ch-accept': run('challenge', () => cloud.respondChallenge(social.challenges.find(c => c.id === id), true, name => addHabit(name, { silent: true }))); break;
@@ -685,6 +941,10 @@ document.addEventListener('click', ev => {
 });
 
 document.addEventListener('change', ev => {
+  if (ev.target.name === 'habit' && ev.target.form?.dataset.form === 'challenge') {
+    challengeHabit = ev.target.value;
+    ev.target.form.querySelector('.new-habit').hidden = ev.target.value !== '__new';
+  }
   // показываем поле имени, только когда отмечена галочка
   if (ev.target.name === 'showName') {
     syncNameField(ev.target.form);
@@ -725,11 +985,12 @@ document.addEventListener('submit', ev => {
     });
   } else if (kind === 'challenge') {
     const target = challengeTargets().find(x => x.uid === fd.get('friend'));
-    const habit = state.habits.find(h => h.id === fd.get('habit'));
     challengeFriend = target?.uid || '';
-    if (!target || !habit) return;
+    if (!target) return;
+    const name = formHabitName(form);
+    if (!name) return;
     run('challenge', async () => {
-      await cloud.createChallenge(target, habit.name, Number(fd.get('days')));
+      await cloud.createChallenge(target, name, Number(fd.get('days')));
       return `Вызов отправлен ${target.label}!`;
     });
   }

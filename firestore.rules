@@ -83,6 +83,17 @@ service cloud.firestore {
       allow delete: if signedIn() && (resource.data.from == me() || resource.data.to == me());
     }
 
+    // Турниры: участники и их прогресс. Сами турниры описаны в js/tournaments.js.
+    match /tournaments/{tid}/participants/{uid} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && uid == me()
+        && request.resource.data.keys().hasOnly(['nickname', 'count', 'completed', 'failed', 'joinedAt', 'updatedAt'])
+        && request.resource.data.nickname is string
+        && request.resource.data.count is int
+        && request.resource.data.count >= 0 && request.resource.data.count <= 366;
+      allow delete: if signedIn() && uid == me();
+    }
+
     // Вызовы между двумя людьми: другом, человеком из поиска или по ссылке-приглашению.
     match /challenges/{id} {
       allow read: if signedIn() && me() in resource.data.participants;

@@ -1,6 +1,7 @@
 // Облачная часть: вход, синхронизация привычек, друзья, поиск по привычкам, приглашения и вызовы (Firebase).
 import { firebaseConfig, appleSignInEnabled } from '../firebase-config.js';
 import { streaks, habitKey, challengeProgress, todayNumber, dateKey } from './core.js';
+import { tournamentById } from './tournaments.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/10.14.1';
 const params = new URLSearchParams(location.search);
@@ -13,7 +14,8 @@ const config = useEmulator
 export const cloudAvailable = !!config;
 export const appleAvailable = appleSignInEnabled && !useEmulator;
 
-const DEFAULT_SETTINGS = { showName: false, realName: '', discoverable: false };
+// Новых пользователей видно в подборе соперников (только ник и серии); отключается в настройках.
+const DEFAULT_SETTINGS = { showName: false, realName: '', discoverable: true };
 
 // Состояние, которое показывает интерфейс.
 export const social = {
@@ -26,6 +28,7 @@ export const social = {
   friends: [],         // [{ uid, nickname }]
   friendStats: {},     // uid → { habits: [{ key, name, cur, end, best, goal }], realName }
   challenges: [],
+  joined: [],          // id турниров, в которых участвую
   error: null,
 };
 
@@ -109,7 +112,7 @@ async function onUser(user) {
   Object.assign(social, {
     user: user ? { uid: user.uid, email: user.email, displayName: user.displayName || '' } : null,
     profile: user ? undefined : null, settings: { ...DEFAULT_SETTINGS },
-    incoming: [], outgoing: [], friends: [], friendStats: {}, challenges: [],
+    incoming: [], outgoing: [], friends: [], friendStats: {}, challenges: [], joined: [],
   });
   changed();
   if (!user) return;
@@ -128,6 +131,7 @@ async function onUser(user) {
   const local = hooks.getState();
   const merged = first.exists() ? mergeStates(first.data(), local) : local;
   social.settings = { ...DEFAULT_SETTINGS, realName: social.user.displayName, ...(first.data()?.settings || {}) };
+  social.joined = first.data()?.tournaments || [];
   hooks.setState(merged);
   remoteLoaded = true;
   if (!first.data()?.settings) await fb.setDoc(userRef, { settings: social.settings }, { merge: true });
@@ -137,6 +141,7 @@ async function onUser(user) {
     if (snap.metadata.hasPendingWrites || !snap.exists()) return;
     const data = snap.data();
     social.settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
+    social.joined = data.tournaments || [];
     if (data.client !== clientId && data.habits) {
       hooks.setState({ habits: data.habits });  // изменения с другого устройства
       syncChallenges();
@@ -241,6 +246,7 @@ async function pushNow() {
     }
     await batch.commit();
     await syncChallenges();
+    await syncTournaments();
   } catch (e) {
     console.error('sync failed', e);
   }
@@ -343,17 +349,17 @@ export async function removeFriend(uid) {
 
 // ---------- Поиск людей с такими же привычками ----------
 
-export async function findSimilar() {
+export async function findSimilar(perHabit = 15) {
   const me = social.user.uid;
   const mine = statsList(hooks.getState());
   const keys = [...new Set(mine.map(s => s.key))].slice(0, 10);
   const people = new Map();
   await Promise.all(keys.map(async key => {
-    const snap = await fb.getDocs(fb.query(fb.collection(db, 'discover'), fb.where('keys', 'array-contains', key), fb.limit(15)));
+    const snap = await fb.getDocs(fb.query(fb.collection(db, 'discover'), fb.where('keys', 'array-contains', key), fb.limit(perHabit)));
     for (const d of snap.docs) {
       if (d.id === me) continue;
       const data = d.data();
-      if (!people.has(d.id)) people.set(d.id, { uid: d.id, nickname: data.nickname, habits: data.habits || [] });
+      if (!people.has(d.id)) people.set(d.id, { uid: d.id, nickname: data.nickname, habits: data.habits || [], updated: data.updatedAt?.toMillis?.() || 0 });
     }
   }));
   const myKeys = new Set(keys);
@@ -361,6 +367,83 @@ export async function findSimilar() {
     .map(p => ({ ...p, common: p.habits.filter(h => myKeys.has(h.key)) }))
     .sort((a, b) => b.common.length - a.common.length || a.nickname.localeCompare(b.nickname))
     .slice(0, 30);
+}
+
+// Случайные соперники: люди с такими же привычками, которые недавно заходили.
+export async function suggestOpponents(count = 5) {
+  const all = await findSimilar(60);
+  const friendIds = new Set(social.friends.map(f => f.uid));
+  const weekAgo = Date.now() - 21 * 86400000;
+  const fresh = all.filter(p => !friendIds.has(p.uid) && p.common.length && (!p.updated || p.updated > weekAgo));
+  for (let i = fresh.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [fresh[i], fresh[j]] = [fresh[j], fresh[i]]; }
+  return fresh.slice(0, count);
+}
+
+// ---------- Турниры ----------
+
+const lastTournamentWrite = {};
+
+function tournamentProgress(t) {
+  const habit = hooks.getState().habits.find(h => habitKey(h.name) === t.habitKey);
+  return challengeProgress(habit, t.startDay, t.days, todayNumber());
+}
+
+export async function joinTournament(t, ensureHabit) {
+  const uid = social.user.uid;
+  ensureHabit(t.habit);
+  const p = tournamentProgress(t);
+  const batch = fb.writeBatch(db);
+  batch.set(fb.doc(db, 'tournaments', t.id, 'participants', uid), {
+    nickname: social.profile.nickname, ...p, joinedAt: fb.serverTimestamp(), updatedAt: fb.serverTimestamp(),
+  });
+  batch.set(fb.doc(db, 'users', uid), { tournaments: fb.arrayUnion(t.id) }, { merge: true });
+  await batch.commit();
+  social.joined = [...new Set([...social.joined, t.id])];
+  lastTournamentWrite[t.id] = JSON.stringify(p);
+}
+
+export async function leaveTournament(t) {
+  const uid = social.user.uid;
+  const batch = fb.writeBatch(db);
+  batch.delete(fb.doc(db, 'tournaments', t.id, 'participants', uid));
+  batch.set(fb.doc(db, 'users', uid), { tournaments: fb.arrayRemove(t.id) }, { merge: true });
+  await batch.commit();
+  social.joined = social.joined.filter(x => x !== t.id);
+}
+
+// Таблица лидеров: первые 10, моё место и сколько всего участников.
+export async function loadLeaderboard(t) {
+  const col = fb.collection(db, 'tournaments', t.id, 'participants');
+  const [topSnap, countSnap] = await Promise.all([
+    fb.getDocs(fb.query(col, fb.orderBy('count', 'desc'), fb.limit(10))),
+    fb.getCountFromServer(col),
+  ]);
+  const top = topSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
+  let myPlace = null;
+  if (social.joined.includes(t.id)) {
+    const mine = tournamentProgress(t);
+    const ahead = await fb.getCountFromServer(fb.query(col, fb.where('count', '>', mine.count)));
+    myPlace = ahead.data().count + 1;
+  }
+  return { top, total: countSnap.data().count, myPlace };
+}
+
+async function syncTournaments() {
+  if (!social.user || !social.profile) return;
+  const uid = social.user.uid;
+  const today = todayNumber();
+  for (const id of social.joined) {
+    const t = tournamentById(id);
+    if (!t || today > t.startDay + t.days + 1) continue; // турнир давно закончился
+    const p = tournamentProgress(t);
+    const key = JSON.stringify(p);
+    if (lastTournamentWrite[id] === key) continue;
+    try {
+      await fb.setDoc(fb.doc(db, 'tournaments', id, 'participants', uid),
+        { nickname: social.profile.nickname, ...p, updatedAt: fb.serverTimestamp() }, { merge: true });
+      lastTournamentWrite[id] = key;
+    } catch (e) { console.error('tournament sync failed', e); }
+  }
 }
 
 // ---------- Вызовы ----------
@@ -456,6 +539,7 @@ export async function deleteAccount() {
   for (const r of [...social.incoming, ...social.outgoing]) batch.delete(fb.doc(db, 'friendRequests', r.id));
   for (const c of social.challenges) batch.delete(fb.doc(db, 'challenges', c.id));
   for (const d of myInvites.docs) batch.delete(d.ref);
+  for (const id of social.joined) batch.delete(fb.doc(db, 'tournaments', id, 'participants', uid));
   if (social.profile) batch.delete(fb.doc(db, 'usernames', social.profile.nickname));
   for (const col of ['profiles', 'stats', 'discover', 'users']) batch.delete(fb.doc(db, col, uid));
   stopListeners();
