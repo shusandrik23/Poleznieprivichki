@@ -19,6 +19,21 @@
     --accent-soft: #e3f4ec;
     --danger: #c9473d;
     --radius: 14px;
+    --grad1: #1f8f5f; --grad2: #0f5c3c;
+  }
+  /* Пастельные гаммы (выбираются в настройках) */
+  :root[data-palette="pink"]   { --grad1: #d98aa8; --grad2: #a8456c; }
+  :root[data-palette="beige"]  { --grad1: #c9a27a; --grad2: #8a6238; }
+  :root[data-palette="purple"] { --grad1: #a08ad6; --grad2: #5e44a0; }
+  @media not (prefers-color-scheme: dark) {
+    :root[data-palette="pink"]   { --bg: #fcf4f7; --line: #f1dde5; --accent: #c2557f; --accent-soft: #fbe4ed; }
+    :root[data-palette="beige"]  { --bg: #f8f2ea; --line: #ece0cf; --accent: #a07444; --accent-soft: #f3e6d4; }
+    :root[data-palette="purple"] { --bg: #f6f4fc; --line: #e3ddf1; --accent: #7b5cc0; --accent-soft: #ece6f8; }
+  }
+  @media (prefers-color-scheme: dark) {
+    :root[data-palette="pink"]   { --accent: #e48aab; --accent-soft: #3d2531; }
+    :root[data-palette="beige"]  { --accent: #d1a679; --accent-soft: #3a2e21; }
+    :root[data-palette="purple"] { --accent: #a990e6; --accent-soft: #2e2742; }
   }
   @media (prefers-color-scheme: dark) {
     .tour-banner, .limit-card { background: #3a3218 !important; border-color: #6b5a26 !important; color: #f3e6bf !important; }
@@ -214,13 +229,13 @@
   .person .chips { margin-top: 6px; }
   .quote-overlay {
     position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px 16px;
-    background: linear-gradient(160deg, #1f8f5f, #0f5c3c); color: #fff; animation: fadein .3s ease;
+    background: linear-gradient(160deg, var(--grad1), var(--grad2)); color: #fff; animation: fadein .3s ease;
   }
   .quote-card { max-width: 480px; text-align: center; }
   .quote-mark { font: 700 96px/0.6 Georgia, serif; opacity: .35; margin-bottom: 8px; }
   .quote-text { font-size: 24px; line-height: 1.4; font-weight: 600; margin: 0 0 16px; }
   .quote-author { font-size: 17px; opacity: .85; margin: 0 0 36px; }
-  .quote-btn { background: #fff !important; color: #0f5c3c !important; border-color: #fff !important; padding: 12px 28px; font-size: 17px; }
+  .quote-btn { background: #fff !important; color: var(--grad2) !important; border-color: #fff !important; padding: 12px 28px; font-size: 17px; }
   .quote-btn:focus { outline: none; }
   .quote-btn:focus-visible { outline: 3px solid rgba(255,255,255,.6); outline-offset: 3px; }
   @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
@@ -271,13 +286,24 @@
   .feed.mini { grid-template-columns: repeat(4, 1fr); gap: 6px; margin-top: 4px; }
   .feed.mini figcaption { font-size: 11px; padding: 3px 5px; }
   .check-row.inline { display: inline-flex !important; margin-left: 8px; font-size: 14px !important; }
+  .gear { border: 1px solid var(--line); background: var(--card); border-radius: 999px; width: 40px; height: 40px; font-size: 19px; display: grid; place-items: center; flex: none; }
+  .gear.active { background: var(--accent-soft); border-color: var(--accent); }
+  .swatches { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; }
+  .swatch { display: flex; align-items: center; gap: 10px; border: 2px solid var(--line); background: var(--card); color: var(--text); border-radius: 12px; padding: 10px 12px; font-size: 15px; font-weight: 600; }
+  .swatch .dot { width: 26px; height: 26px; border-radius: 50%; background: linear-gradient(135deg, var(--sw) 50%, var(--sa) 50%); flex: none; }
+  .swatch.active { border-color: var(--accent); background: var(--accent-soft); }
+  .lang-switch.big button { font-size: 15px; padding: 8px 18px; }
+  .reminder-time { margin-top: 8px; }
+  .reminder-time input { padding: 8px 10px; font: inherit; color: var(--text); background: var(--bg); border: 1px solid var(--line); border-radius: 10px; }
+  #view-settings .account { margin-top: 0; text-align: left; }
+  #view-settings .account .center-row { justify-content: flex-start; }
   [hidden] { display: none !important; }
 </style>
 </head>
 <body>
 <main>
   <header>
-    <div class="title-row"><h1>YouBoost</h1><div class="lang-switch" id="langSwitch"></div></div>
+    <div class="title-row"><h1>YouBoost</h1><button class="gear" id="settingsBtn" data-action="open-settings" aria-label="Настройки">⚙️</button></div>
     <p class="tagline" data-i18n="app.tagline">Каждый день отмечайте, что сделали, и следите за сериями дней подряд</p>
     <div class="date" id="today"></div>
   </header>
@@ -316,6 +342,7 @@
 
   <section class="view" id="view-friends" hidden></section>
   <section class="view" id="view-challenges" hidden></section>
+  <section class="view" id="view-settings" hidden></section>
 </main>
 <div class="quote-overlay" id="quote" hidden role="dialog" aria-modal="true" aria-labelledby="quoteText">
   <div class="quote-card">

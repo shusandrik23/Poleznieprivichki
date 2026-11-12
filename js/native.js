@@ -81,6 +81,44 @@ export async function onAppUrlOpen(handler) {
   try { const r = await withTimeout(plugin('App').getLaunchUrl(), 5000, 'launchUrl'); if (r?.url) handler(r.url); } catch (err) {}
 }
 
+// ---------- Уведомления (Android) ----------
+const REMINDER_ID = 1;
+
+export async function notificationsAllowed() {
+  if (!isNative) return false;
+  try {
+    let st = await withTimeout(plugin('LocalNotifications').checkPermissions(), 5000, 'perm');
+    if (st.display !== 'granted') st = await plugin('LocalNotifications').requestPermissions();
+    return st.display === 'granted';
+  } catch (err) { console.error(err); return false; }
+}
+
+// Ежедневное напоминание в hh:mm (неточный будильник — не нужно отдельное разрешение на точные).
+export async function scheduleDailyReminder(hour, minute, title, body) {
+  if (!isNative) return false;
+  if (!(await notificationsAllowed())) return false;
+  await cancelDailyReminder();
+  await plugin('LocalNotifications').schedule({ notifications: [{
+    id: REMINDER_ID, title, body, schedule: { on: { hour, minute }, allowWhileIdle: true }, isExactNotification: false,
+  }] });
+  return true;
+}
+
+export async function cancelDailyReminder() {
+  if (!isNative) return;
+  try { await plugin('LocalNotifications').cancel({ notifications: [{ id: REMINDER_ID }] }); } catch (err) {}
+}
+
+// Уведомление прямо сейчас (например, «вам бросили вызов»).
+export async function notifyNow(id, title, body) {
+  if (isNative) {
+    if (!(await notificationsAllowed())) return;
+    await plugin('LocalNotifications').schedule({ notifications: [{ id, title, body, isExactNotification: false }] });
+  } else if ('Notification' in window && Notification.permission === 'granted') {
+    new Notification(title, { body, icon: 'icons/icon-192.png' });
+  }
+}
+
 // Кнопка «Назад» на Android. handler возвращает true, если что-то закрыл.
 export async function onBackButton(handler) {
   if (!isNative) return;

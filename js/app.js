@@ -6,7 +6,8 @@ import { CATEGORIES, catalogName, keyOf, keyOfName, normKey, displayName, nameOf
 import { factFor } from './facts.js';
 import { quoteFor } from './quotes.js';
 import { PLANS, goalLimit } from './plans.js';
-import { isNative, hasNativeGoogle, appUrl, PUBLIC_URL, nativeShare, copyText, openExternal, onBackButton, onAppUrlOpen } from './native.js';
+import { prefs, savePrefs, applyTheme, theme, THEMES } from './prefs.js';
+import { isNative, hasNativeGoogle, appUrl, PUBLIC_URL, nativeShare, copyText, openExternal, onBackButton, onAppUrlOpen, scheduleDailyReminder, cancelDailyReminder, notifyNow } from './native.js';
 import { tournamentsAround, tournamentStatus, canJoin, FLAG_LIMIT, tourProgress } from './tournaments.js';
 
 const STORAGE_KEY = 'habit-trainer-v1';
@@ -42,6 +43,7 @@ function save() {
 
 let tab = 'habits';
 try { tab = localStorage.getItem(TAB_KEY) || 'habits'; } catch (err) {}
+if (tab === 'settings') tab = 'habits';   // настройки не открываем сразу при запуске
 let editingGoal = null;     // id привычки с открытым редактором цели
 let renaming = false;       // открыта форма смены ника
 let challengeFriend = '';   // выбранный соперник в форме вызова
@@ -199,8 +201,8 @@ function applyStaticTexts() {
   document.title = t('app.title');
   for (const el of document.querySelectorAll('[data-i18n]')) el.textContent = t(el.dataset.i18n);
   for (const el of document.querySelectorAll('[data-i18n-ph]')) el.placeholder = t(el.dataset.i18nPh);
-  $('langSwitch').innerHTML = LANGS.map(([code]) =>
-    `<button data-lang="${code}" class="${code === lang ? 'active' : ''}" aria-label="${code === 'ru' ? 'Русский' : 'English'}">${code.toUpperCase()}</button>`).join('');
+  $('settingsBtn').setAttribute('aria-label', t('settings.open'));
+  $('settingsBtn').title = t('settings.open');
 }
 
 function render() {
@@ -220,6 +222,8 @@ function render() {
   if (tab === 'habits') renderHabits();
   if (tab === 'friends') renderFriends();
   if (tab === 'challenges') renderChallenges();
+  if (tab === 'settings') renderSettings();
+  $('settingsBtn').classList.toggle('active', tab === 'settings');
 }
 
 // Как показывать друга: настоящее имя, если он разрешил, иначе ник.
@@ -522,7 +526,7 @@ function renderFriends() {
     </div>`;
   }
 
-  html += inviteCard() + similarCard() + settingsCard() + accountCard();
+  html += inviteCard() + similarCard();
   setHTML(el, html);
 }
 
@@ -686,14 +690,14 @@ function renderChallenges() {
 
 const imageCache = {};
 function streakImage(name, n) {
-  const key = lang + '|' + name + '|' + n;
+  const key = prefs.theme + '|' + lang + '|' + name + '|' + n;
   if (imageCache[key]) return imageCache[key];
   const W = 1080, H = 1350;
   const c = document.createElement('canvas');
   c.width = W; c.height = H;
   const g = c.getContext('2d');
   const grad = g.createLinearGradient(0, 0, W, H);
-  grad.addColorStop(0, '#1f8f5f'); grad.addColorStop(1, '#0f5c3c');
+  grad.addColorStop(0, theme().grad[0]); grad.addColorStop(1, theme().grad[1]);
   g.fillStyle = grad; g.fillRect(0, 0, W, H);
   g.fillStyle = 'rgba(255,255,255,.08)';
   g.beginPath(); g.arc(W - 120, 160, 260, 0, Math.PI * 2); g.fill();
@@ -997,6 +1001,66 @@ function shareInvite(via, flashKey, habitName = null, days = null, photoRequired
   render();
 }
 
+// ---------- Настройки ----------
+
+function renderSettings() {
+  const r = prefs.reminder;
+  let html = `<div class="card">
+    <h2>${t('settings.colors')}</h2>
+    <div class="swatches">${Object.entries(THEMES).map(([name, th]) => `<button class="swatch${prefs.theme === name ? ' active' : ''}" data-palette="${name}" style="--sw:${th.swatch};--sa:${th.accent}">
+      <span class="dot"></span>${t('color.' + name)}</button>`).join('')}</div>
+  </div>
+  <div class="card">
+    <h2>${t('settings.language')}</h2>
+    <div class="lang-switch big">${LANGS.map(([code, label]) => `<button data-lang="${code}" class="${code === lang ? 'active' : ''}">${label}</button>`).join('')}</div>
+  </div>
+  <div class="card">
+    <h2>${t('settings.reminders')}</h2>
+    <label class="check-row"><input type="checkbox" id="reminderOn"${r.on ? ' checked' : ''}><span>${t('settings.reminderOn')}</span></label>
+    <div class="row reminder-time"${r.on ? '' : ' hidden'}><span>${t('settings.reminderAt')}</span><input type="time" id="reminderTime" value="${r.time}"></div>
+    ${isNative ? '' : `<p class="small">${t('settings.reminderAppOnly')}</p>`}
+    ${flashHtml('reminder')}
+  </div>
+  <div class="card">
+    <h2>${t('settings.notifications')}</h2>
+    <label class="check-row"><input type="checkbox" id="notifyChallenges"${prefs.notifyChallenges ? ' checked' : ''}><span>${t('settings.notifyChallenges')}</span></label>
+    <p class="small">${t('settings.notifyNote')}</p>
+  </div>`;
+  if (social.user && social.profile) {
+    html += settingsCard() + (renaming ? nicknameForm() : `<div class="card"><h2>${t('settings.account')}</h2>${accountCard()}</div>`);
+  } else if (cloud.cloudAvailable) {
+    html += `<div class="card"><h2>${t('settings.title')}</h2><p class="small">${t('settings.signinFirst')}</p>
+      <button class="btn small-btn" data-action="go-friends">${t('tab.friends')}</button></div>`;
+  }
+  setHTML($('view-settings'), html);
+}
+
+async function updateReminder() {
+  const r = prefs.reminder;
+  if (!r.on) { await cancelDailyReminder(); flash.reminder = null; render(); return; }
+  if (!isNative) { flash.reminder = null; render(); return; }
+  const [hh, mm] = r.time.split(':').map(Number);
+  const ok = await scheduleDailyReminder(hh, mm, 'YouBoost', t('reminder.body'));
+  flash.reminder = ok ? { text: t('settings.reminderSet', { time: r.time }) } : { text: t('settings.reminderDenied'), error: true };
+  render();
+}
+
+// Новые вызовы → уведомление (один раз на каждый вызов).
+const SEEN_KEY = 'youboost-seen-challenges';
+function onIncomingChallenges(list) {
+  let seen = [];
+  try { seen = JSON.parse(localStorage.getItem(SEEN_KEY) || '[]'); } catch (err) {}
+  const fresh = list.filter(c => !seen.includes(c.id));
+  if (!fresh.length) return;
+  try { localStorage.setItem(SEEN_KEY, JSON.stringify([...seen, ...fresh.map(c => c.id)].slice(-200))); } catch (err) {}
+  if (!prefs.notifyChallenges) return;
+  for (const ch of fresh) {
+    const from = '@' + (ch.names?.[ch.participants[0]] || '');
+    notifyNow(100 + (Math.abs([...ch.id].reduce((a, c) => a * 31 + c.charCodeAt(0) | 0, 0)) % 100000), 'YouBoost',
+      t('notify.challenge', { name: from, habit: nameOfKey(ch.habitKey, ch.habitName) })).catch(err => console.error(err));
+  }
+}
+
 // ---------- Запасной вход через браузер (Android) ----------
 // Приложение открывает сайт в Chrome (?appauth=код), там человек входит через Google, а кнопка
 // «Вернуться в YouBoost» открывает com.youboost.app://auth?state=код&idToken=… — и приложение входит по этому токену.
@@ -1094,15 +1158,21 @@ function goTab(name) {
 
 function switchLang(code) {
   setLang(code);
+  if (prefs.reminder.on) updateReminder();   // текст напоминания — на новом языке
   applyStaticTexts();
   if (!$('quote').hidden) fillQuote();
   render();
 }
 
 document.addEventListener('click', ev => {
-  const el = ev.target.closest('[data-action], .tabs button, [data-lang]');
+  const el = ev.target.closest('[data-action], .tabs button, button[data-lang], button[data-palette]');
   if (!el) return;
   if (el.dataset.lang) { switchLang(el.dataset.lang); return; }
+  if (el.dataset.palette) {
+    savePrefs({ theme: el.dataset.palette }); applyTheme();
+    for (const k of Object.keys(imageCache)) delete imageCache[k];
+    render(); return;
+  }
   if (el.dataset.tab) { goTab(el.dataset.tab); return; }
   const { action, id } = el.dataset;
   switch (action) {
@@ -1116,6 +1186,7 @@ document.addEventListener('click', ev => {
     case 'goal-set': setGoal(id, el.dataset.days ? Number(el.dataset.days) : null); break;
     case 'signin-google': flash.signin = { text: t('signin.opening') }; render(); run('signin', cloud.signInGoogle); break;
     case 'signin-browser': startBrowserSignIn(); break;
+    case 'open-settings': goTab(tab === 'settings' ? 'habits' : 'settings'); break;
     case 'appauth-signin': appAuthSignIn(); break;
     case 'signin-apple': flash.signin = { text: t('signin.opening') }; render(); run('signin', cloud.signInApple); break;
     case 'signout': similar = null; run(null, cloud.signOut); break;
@@ -1221,6 +1292,16 @@ document.addEventListener('click', ev => {
 
 document.addEventListener('change', ev => {
   if (ev.target.id === 'suggestPhoto') { suggestPhoto = ev.target.checked; return; }
+  if (ev.target.id === 'reminderOn' || ev.target.id === 'reminderTime') {
+    savePrefs({ reminder: { on: $('reminderOn').checked, time: $('reminderTime').value || '20:00' } });
+    updateReminder(); return;
+  }
+  if (ev.target.id === 'notifyChallenges') {
+    savePrefs({ notifyChallenges: ev.target.checked });
+    // в браузере просим разрешение на уведомления
+    if (ev.target.checked && !isNative && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+    return;
+  }
   if (ev.target.id === 'photoInput' && photoFor?.kind === 'ch') {
     const file = ev.target.files?.[0];
     const ch = social.challenges.find(c => c.id === photoFor.id);
@@ -1348,6 +1429,7 @@ render();
 
 cloud.initCloud({
   onChange: render,
+  onIncomingChallenges,
   // отметка в турнире записана — обновляем таблицу
   onTournament: id => { const tr = tournamentsAround(todayNumber()).find(x => x.id === id); if (tr) loadTour(tr); },
   getState: () => state,

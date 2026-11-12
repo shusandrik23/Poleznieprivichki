@@ -213,6 +213,7 @@ async function onUser(user) {
       .sort((a, b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
     changed();
     syncChallenges();
+    hooks.onIncomingChallenges?.(social.challenges.filter(c => c.status === 'pending' && c.participants[1] === uid));
   }));
 }
 
