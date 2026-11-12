@@ -36,16 +36,34 @@ export const HABITS = {
   call_family:      { e: '📞', ru: 'Позвонить родным', en: 'Call your family' },
   compliment:       { e: '💬', ru: 'Сделать комплимент', en: 'Give a compliment' },
   help_someone:     { e: '🤝', ru: 'Помочь кому-нибудь', en: 'Help someone' },
+  compliment_close: { e: '💞', ru: 'Сделать комплимент близкому', en: 'Compliment someone close to you' },
+  no_yelling:       { e: '🤫', ru: 'Не кричать на ребёнка', en: 'Don’t yell at my child' },
+  dishes:           { e: '🍽️', ru: 'Сразу мыть грязную посуду', en: 'Wash the dishes right away' },
+  make_bed:         { e: '🛏️', ru: 'Заправить кровать', en: 'Make your bed' },
+  punctual:         { e: '🕘', ru: 'Не опаздывать', en: 'Be on time' },
+  beauty_photo:     { e: '📷', ru: 'Сфотографировать что-то красивое на улице', en: 'Photograph something beautiful outside' },
+  no_judging:       { e: '🕊️', ru: 'Не оценивать других', en: 'Don’t judge others' },
+  breathing:        { e: '🌬️', ru: 'Дыхательная практика 5 минут', en: '5-minute breathing exercise' },
+  mood_check:       { e: '😊', ru: 'Отметить своё настроение', en: 'Check in with your mood' },
+  no_news_morning:  { e: '📰', ru: 'Утро без новостей', en: 'No news in the morning' },
+  self_kindness:    { e: '💛', ru: 'Сказать себе доброе слово', en: 'Say something kind to yourself' },
+  daylight:         { e: '☀️', ru: '10 минут дневного света', en: '10 minutes of daylight' },
+  learn_new:        { e: '💡', ru: 'Узнать что-то новое', en: 'Learn something new' },
+  online_course:    { e: '🎓', ru: 'Урок онлайн-курса', en: 'Take an online course lesson' },
+  write_ideas:      { e: '🗒️', ru: 'Записать 3 идеи', en: 'Write down 3 ideas' },
+  reflect:          { e: '🔁', ru: 'Подвести итоги дня', en: 'Reflect on your day' },
+  deep_work:        { e: '🎯', ru: 'Час без отвлечений на важное дело', en: 'One focused hour on what matters' },
 };
 
 export const CATEGORIES = [
   { ru: 'Здоровье', en: 'Health', items: ['water', 'morning_exercise', 'steps', 'sleep', 'veggies', 'stretch', 'cold_shower'] },
   { ru: 'Спорт', en: 'Fitness', items: ['pushups', 'squats', 'plank', 'stairs'] },
-  { ru: 'Ум и развитие', en: 'Mind & growth', items: ['read', 'language', 'podcast', 'journal', 'puzzle'] },
-  { ru: 'Спокойствие', en: 'Calm', items: ['meditate', 'gratitude', 'walk_outside', 'no_phone_bed'] },
-  { ru: 'Продуктивность', en: 'Productivity', items: ['plan_day', 'tidy_desk', 'no_snooze', 'track_spending', 'save_money'] },
+  { ru: 'Ментальное здоровье', en: 'Mental health', items: ['meditate', 'breathing', 'gratitude', 'mood_check', 'self_kindness', 'no_judging', 'walk_outside', 'daylight', 'beauty_photo', 'no_news_morning', 'no_phone_bed'] },
+  { ru: 'Саморазвитие', en: 'Self-development', items: ['read', 'learn_new', 'language', 'online_course', 'podcast', 'journal', 'write_ideas', 'reflect', 'puzzle'] },
+  { ru: 'Продуктивность', en: 'Productivity', items: ['plan_day', 'deep_work', 'punctual', 'no_snooze', 'track_spending', 'save_money'] },
+  { ru: 'Дом', en: 'Home', items: ['dishes', 'make_bed', 'tidy_desk'] },
   { ru: 'Отказ от вредного', en: 'Quit bad habits', items: ['no_smoking', 'no_sugar', 'no_alcohol', 'less_social'] },
-  { ru: 'Близкие', en: 'People you love', items: ['call_family', 'compliment', 'help_someone'] },
+  { ru: 'Близкие', en: 'People you love', items: ['call_family', 'compliment_close', 'no_yelling', 'compliment', 'help_someone'] },
 ];
 
 // Название каталожной привычки на текущем языке, с эмодзи.
