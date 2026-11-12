@@ -3,7 +3,7 @@ import * as cloud from './cloud.js';
 import { social } from './cloud.js';
 import { factFor } from './facts.js';
 import { quoteFor } from './quotes.js';
-import { isNative, appUrl, nativeShare, copyText, openExternal, onBackButton } from './native.js';
+import { isNative, hasNativeGoogle, appUrl, nativeShare, copyText, openExternal, onBackButton } from './native.js';
 import { tournamentsAround, tournamentStatus, canJoin } from './tournaments.js';
 
 const STORAGE_KEY = 'habit-trainer-v1';
@@ -274,6 +274,10 @@ function renderHabits() {
 
 
 function signInCard(text) {
+  if (isNative && !hasNativeGoogle()) {
+    return `<div class="card center"><p>${text}</p>
+      <p class="small">Вход в приложении появится в следующей версии. А пока войти можно на сайте: <b>shusandrik23.github.io/Poleznieprivichki</b> — там же друзья, вызовы и турниры.</p></div>`;
+  }
   return `<div class="card center">
     <p>${text}</p>
     <div class="signin">
