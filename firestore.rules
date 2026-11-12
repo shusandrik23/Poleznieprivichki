@@ -44,6 +44,18 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.from == me();
     }
 
+    // Приглашённые по ссылке новые пользователи: referrals/{новый пользователь} → { by: пригласивший }.
+    // Создаётся один раз, при регистрации (когда профиля ещё нет), и только по настоящей ссылке пригласившего.
+    match /referrals/{uid} {
+      allow read: if signedIn() && (uid == me() || resource.data.by == me());
+      allow create: if signedIn() && uid == me()
+        && request.resource.data.keys().hasOnly(['by', 'code', 'createdAt'])
+        && request.resource.data.by != me()
+        && !exists(/databases/$(db)/documents/profiles/$(me()))
+        && get(/databases/$(db)/documents/invites/$(request.resource.data.code)).data.from == request.resource.data.by;
+      allow delete: if signedIn() && uid == me();
+    }
+
     // Серии по привычкам и настоящее имя (если разрешено). Видны только самому пользователю и его друзьям.
     match /stats/{uid} {
       allow read: if signedIn() && (uid == me() || isFriend(uid, me()));

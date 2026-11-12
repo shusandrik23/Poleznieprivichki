@@ -3,6 +3,7 @@ import * as cloud from './cloud.js';
 import { social } from './cloud.js';
 import { factFor } from './facts.js';
 import { quoteFor } from './quotes.js';
+import { PLANS, habitLimit, goalLimit } from './plans.js';
 import { isNative, hasNativeGoogle, appUrl, nativeShare, copyText, openExternal, onBackButton } from './native.js';
 import { tournamentsAround, tournamentStatus, canJoin } from './tournaments.js';
 
@@ -67,6 +68,7 @@ function newId() { return Date.now().toString(36) + Math.random().toString(36).s
 
 function findHabit(name) { return state.habits.find(h => habitKey(h.name) === habitKey(name)); }
 
+// silent — привычка добавляется из вызова или турнира: такие в лимит не упираются.
 function addHabit(name, { silent } = {}) {
   name = name.trim();
   if (!name) return false;
@@ -74,6 +76,12 @@ function addHabit(name, { silent } = {}) {
     if (!silent) alert(`Привычка «${name}» уже есть в списке.`);
     return false;
   }
+  if (!silent && state.habits.length >= habitLimit(social.referrals)) {
+    flash.limit = { text: limitText(), error: true };
+    goTab('habits');
+    return false;
+  }
+  flash.limit = null;
   state.habits.push({ id: newId(), name, done: {} });
   save(); render();
   return true;
@@ -96,9 +104,20 @@ function removeHabit(id) {
 function setGoal(id, days) {
   const h = state.habits.find(x => x.id === id);
   if (!h) return;
+  if (days && !h.goal && state.habits.filter(x => x.goal).length >= goalLimit()) {
+    flash.goal = { text: `Бесплатно можно держать ${PLANS.freeGoals} активные цели. Уберите цель у другой привычки или дождитесь YouBoost Plus — там без ограничений.`, error: true };
+    render();
+    return;
+  }
+  flash.goal = null;
   if (days) h.goal = days; else delete h.goal;
   editingGoal = null;
   save(); render();
+}
+
+function limitText() {
+  const n = habitLimit(social.referrals);
+  return `Бесплатно можно вести ${n} ${habitWord(n)}. Пригласите друга по ссылке — за каждого, кто зарегистрируется, +${PLANS.bonusPerReferral} привычка. Без ограничений — в YouBoost Plus (скоро).`;
 }
 
 // ---------- Отрисовка ----------
@@ -208,7 +227,7 @@ function renderHabits() {
           <span>Своё:</span><input name="days" type="number" min="1" max="3650" inputmode="numeric" placeholder="дней" value="${custom}">
           <button class="chip" type="submit">Сохранить</button>
           ${h.goal ? `<button class="link-btn" type="button" data-action="goal-set" data-id="${h.id}" data-days="">Убрать цель</button>` : ''}
-        </form></div>`;
+        </form>${flashHtml('goal')}</div>`;
     }
 
     if (sharing === h.id && current > 0) {
@@ -251,6 +270,13 @@ function renderHabits() {
       ? `<button class="chip added" disabled title="Уже в вашем списке">${e(item)} ✓</button>`
       : `<button class="chip" data-action="add" data-name="${e(item)}" title="Добавить">+ ${e(item)}</button>`).join('')
   }</div></div>`).join('');
+
+  // Сколько привычек ещё можно добавить бесплатно
+  const lim = habitLimit(social.referrals);
+  $('limitNote').innerHTML = flash.limit ? `<div class="limit-card"><p>${e(flash.limit.text)}</p>
+      ${cloud.cloudAvailable ? '<button class="btn primary small-btn" data-action="limit-invite">Пригласить друга</button>' : ''}</div>`
+    : lim !== Infinity && state.habits.length >= lim - 1
+      ? `<p class="small limit-hint">Привычек: ${state.habits.length} из ${lim}. <button class="link-btn" data-action="limit-invite">+1 за приглашённого друга</button></p>` : '';
 
   // Анонс турнира, к которому можно присоединиться
   const today = todayNumber();
@@ -317,9 +343,11 @@ function flashHtml(key) {
 }
 
 function inviteCard() {
-  return `<div class="card">
+  const n = social.referrals;
+  return `<div class="card invite-card">
     <h2>Пригласить друга, которого нет в приложении</h2>
     <p class="small">Отправьте ссылку. Когда друг откроет её и войдёт, вы сразу станете друзьями.</p>
+    ${PLANS.limitsEnabled ? `<p class="bonus">🎁 За каждого друга, который зарегистрируется по вашей ссылке, +${PLANS.bonusPerReferral} привычка.${n ? ` Уже пришли: <b>${n}</b> — вам доступно ${habitLimit(n)} ${habitWord(habitLimit(n))}.` : ''}</p>` : ''}
     <div class="row">
       <button class="btn whatsapp" data-action="invite" data-via="whatsapp">WhatsApp</button>
       ${canShareText() ? '<button class="btn" data-action="invite" data-via="share">Поделиться…</button>' : ''}
@@ -861,6 +889,7 @@ document.addEventListener('click', ev => {
     case 'remove': removeHabit(id); break;
     case 'add': addHabit(t.dataset.name); break;
     case 'next-fact': factOffset++; render(); break;
+    case 'limit-invite': flash.limit = null; goTab('friends'); setTimeout(() => document.querySelector('.invite-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50); break;
     case 'goal-edit': editingGoal = editingGoal === id ? null : id; render(); break;
     case 'goal-set': setGoal(id, t.dataset.days ? Number(t.dataset.days) : null); break;
     case 'signin-google': run(null, cloud.signInGoogle); break;
@@ -979,7 +1008,7 @@ document.addEventListener('submit', ev => {
     const n = Math.round(Number(fd.get('days')));
     if (n >= 1 && n <= 3650) setGoal(form.dataset.id, n); else form.days.focus();
   } else if (kind === 'nickname') {
-    run('nickname', async () => { await cloud.claimNickname(fd.get('nickname')); renaming = false; });
+    run('nickname', async () => { await cloud.claimNickname(fd.get('nickname'), pendingInvite?.code); renaming = false; });
   } else if (kind === 'settings') {
     const showName = !!fd.get('showName');
     const realName = (fd.get('realName') || '').trim();

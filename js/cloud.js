@@ -30,6 +30,7 @@ export const social = {
   friendStats: {},     // uid → { habits: [{ key, name, cur, end, best, goal }], realName }
   challenges: [],
   joined: [],          // id турниров, в которых участвую
+  referrals: 0,        // сколько друзей зарегистрировалось по моим ссылкам
   error: null,
 };
 
@@ -122,12 +123,16 @@ async function onUser(user) {
   Object.assign(social, {
     user: user ? { uid: user.uid, email: user.email, displayName: user.displayName || '' } : null,
     profile: user ? undefined : null, settings: { ...DEFAULT_SETTINGS },
-    incoming: [], outgoing: [], friends: [], friendStats: {}, challenges: [], joined: [],
+    incoming: [], outgoing: [], friends: [], friendStats: {}, challenges: [], joined: [], referrals: 0,
   });
   changed();
   if (!user) return;
   const uid = user.uid;
 
+  unsubs.push(fb.onSnapshot(fb.query(fb.collection(db, 'referrals'), fb.where('by', '==', uid)), snap => {
+    social.referrals = snap.size;
+    changed();
+  }, () => {}));
   unsubs.push(fb.onSnapshot(fb.doc(db, 'profiles', uid), snap => {
     const had = social.profile;
     social.profile = snap.exists() ? snap.data() : null;
@@ -284,7 +289,8 @@ async function syncChallenges() {
 
 export const NICK_RE = /^[a-z0-9_]{3,20}$/;
 
-export async function claimNickname(nickname) {
+// inviteCode — код ссылки, по которой человек пришёл: пригласивший получает бонус за нового пользователя.
+export async function claimNickname(nickname, inviteCode = null) {
   const uid = social.user.uid;
   nickname = nickname.trim().toLowerCase().replace(/^@/, '');
   if (!NICK_RE.test(nickname)) throw new Error('Ник: 3–20 символов, латинские буквы, цифры и «_».');
@@ -298,6 +304,15 @@ export async function claimNickname(nickname) {
   batch.set(fb.doc(db, 'profiles', uid), { nickname });
   // у друзей обновляем ник в их списке
   for (const f of social.friends) batch.update(fb.doc(db, 'users', f.uid, 'friends', uid), { nickname });
+  // Новый пользователь по ссылке-приглашению — засчитываем пригласившему.
+  if (!social.profile && inviteCode) {
+    try {
+      const inv = await fb.getDoc(fb.doc(db, 'invites', inviteCode));
+      if (inv.exists() && inv.data().from !== uid) {
+        batch.set(fb.doc(db, 'referrals', uid), { by: inv.data().from, code: inviteCode, createdAt: fb.serverTimestamp() });
+      }
+    } catch (e) { console.error('referral check failed', e); }
+  }
   await batch.commit();
   social.profile = { nickname };
   await pushNow();
@@ -551,7 +566,7 @@ export async function deleteAccount() {
   for (const d of myInvites.docs) batch.delete(d.ref);
   for (const id of social.joined) batch.delete(fb.doc(db, 'tournaments', id, 'participants', uid));
   if (social.profile) batch.delete(fb.doc(db, 'usernames', social.profile.nickname));
-  for (const col of ['profiles', 'stats', 'discover', 'users']) batch.delete(fb.doc(db, col, uid));
+  for (const col of ['profiles', 'stats', 'discover', 'users', 'referrals']) batch.delete(fb.doc(db, col, uid));
   stopListeners();
   await batch.commit();
   try {

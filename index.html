@@ -21,7 +21,7 @@
     --radius: 14px;
   }
   @media (prefers-color-scheme: dark) {
-    .tour-banner { background: #3a3218 !important; border-color: #6b5a26 !important; color: #f3e6bf !important; }
+    .tour-banner, .limit-card { background: #3a3218 !important; border-color: #6b5a26 !important; color: #f3e6bf !important; }
     :root {
       --bg: #15171a;
       --card: #1e2125;
@@ -224,6 +224,10 @@
   .quote-btn:focus { outline: none; }
   .quote-btn:focus-visible { outline: 3px solid rgba(255,255,255,.6); outline-offset: 3px; }
   @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
+  .limit-card { background: #fff6dc; border: 1px solid #f0d68a; color: #3d3210; border-radius: var(--radius); padding: 12px 14px; margin: -8px 0 16px; font-size: 14px; }
+  .limit-card p { margin: 0 0 8px; }
+  .limit-hint { margin: -10px 0 14px; }
+  .bonus { margin: 8px 0 10px !important; font-size: 14px; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -254,6 +258,7 @@
       <input id="newHabit" placeholder="Своя привычка, например «Зарядка»" maxlength="80" autocomplete="off">
       <button type="submit">Добавить</button>
     </form>
+    <div id="limitNote"></div>
 
     <details class="catalog" id="catalog">
       <summary>Выбрать из готового списка</summary>
