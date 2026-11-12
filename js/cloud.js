@@ -463,7 +463,16 @@ export async function loadLeaderboard(t) {
     fb.getDocs(fb.query(fb.collection(db, 'tournaments', t.id, 'participants'), fb.limit(300))),
     fb.getDocs(fb.query(fb.collection(db, 'tournaments', t.id, 'photos'), fb.orderBy('createdAt', 'desc'), fb.limit(200))),
   ]);
-  const photos = phs.docs.map(d => ({ id: d.id, ...d.data() }));
+  let photos = phs.docs.map(d => ({ id: d.id, ...d.data() }));
+  // Турнир закончился — фото удаляем (правила разрешают это любому участнику после срока).
+  const expired = photos.filter(p => p.expires !== undefined && todayNumber() > p.expires);
+  if (expired.length) {
+    try {
+      const batch = fb.writeBatch(db);
+      expired.forEach(p => batch.delete(fb.doc(db, 'tournaments', t.id, 'photos', p.id)));
+      await batch.commit();
+    } catch (e) { console.error('tournament photo cleanup failed', e); }
+  }
   const rejected = {}, photoCount = {};
   for (const p of photos) {
     if ((p.flags || []).length >= FLAG_LIMIT) (rejected[p.uid] ||= new Set()).add(p.day);
@@ -486,7 +495,8 @@ async function syncTournaments() {
   const today = todayNumber();
   for (const id of social.joined) {
     const t = tournamentById(id);
-    if (!t || today < t.startDay || today >= t.startDay + t.days) continue; // турнир не идёт
+    if (t && today >= t.startDay + t.days) { cleanupOwnTournamentPhotos(t); continue; } // закончился — убираем свои фото
+    if (!t || today < t.startDay) continue; // турнир ещё не начался
     const done = myDoneToday(t);
     const key = today + ':' + done;
     if (lastTournamentWrite[id] === key) continue;
@@ -510,12 +520,23 @@ async function syncTournaments() {
   }
 }
 
+const cleanedTournaments = new Set();
+async function cleanupOwnTournamentPhotos(t) {
+  if (cleanedTournaments.has(t.id)) return;
+  cleanedTournaments.add(t.id);
+  try {
+    const mine = await fb.getDocs(fb.query(fb.collection(db, 'tournaments', t.id, 'photos'), fb.where('uid', '==', social.user.uid)));
+    for (const d of mine.docs) await fb.deleteDoc(d.ref);
+  } catch (e) { console.error(e); }
+}
+
 // Фото-подтверждение за сегодня (сжатое изображение, data URL).
 export async function addTournamentPhoto(t, image) {
   const uid = social.user.uid;
   const day = String(todayNumber());
   await fb.setDoc(fb.doc(db, 'tournaments', t.id, 'photos', `${uid}_${day}`), {
     uid, nickname: social.profile.nickname, day, image, createdAt: fb.serverTimestamp(), flags: [],
+    expires: t.startDay + t.days - 1,   // на следующий день после конца турнира фото удаляются
   });
 }
 
@@ -526,12 +547,12 @@ export async function flagPhoto(t, photo) {
 // ---------- Вызовы ----------
 
 // target — друг или человек из поиска: { uid, nickname }
-export async function createChallenge(target, habitName, days) {
+export async function createChallenge(target, habitName, days, photoRequired = false) {
   const me = social.user.uid;
   await fb.addDoc(fb.collection(db, 'challenges'), {
     participants: [me, target.uid],
     names: { [me]: social.profile.nickname, [target.uid]: target.nickname },
-    habitName, habitKey: keyOfName(habitName), days,
+    habitName, habitKey: keyOfName(habitName), days, photoRequired: !!photoRequired,
     status: 'pending', startDay: null, progress: {},
     createdAt: fb.serverTimestamp(),
   });
@@ -551,7 +572,35 @@ export async function respondChallenge(ch, accept, ensureHabit) {
 }
 
 export async function deleteChallenge(ch) {
+  await cleanupChallengePhotos(ch);   // сначала фото — пока вызов существует, правила разрешают их удалить
   await fb.deleteDoc(fb.doc(db, 'challenges', ch.id));
+}
+
+// ---------- Фото в вызовах с обязательным подтверждением ----------
+// challenges/{id}/photos/{uid}_{день}. Засчитываются только дни с фото, добавленным в тот же день.
+
+export async function loadChallengePhotos(ch) {
+  const snap = await fb.getDocs(fb.collection(db, 'challenges', ch.id, 'photos'));
+  return snap.docs.map(d => ({ id: d.id, ...d.data() }));
+}
+
+export async function addChallengePhoto(ch, image) {
+  const uid = social.user.uid;
+  const day = String(todayNumber());
+  await fb.setDoc(fb.doc(db, 'challenges', ch.id, 'photos', `${uid}_${day}`), {
+    uid, day, image, createdAt: fb.serverTimestamp(), expires: ch.startDay + ch.days - 1,
+  });
+}
+
+// Вызов закончился или удаляется — фото больше не нужны.
+export async function cleanupChallengePhotos(ch) {
+  try {
+    const snap = await fb.getDocs(fb.collection(db, 'challenges', ch.id, 'photos'));
+    if (!snap.size) return;
+    const batch = fb.writeBatch(db);
+    snap.docs.forEach(d => batch.delete(d.ref));
+    await batch.commit();
+  } catch (e) { console.error('challenge photo cleanup failed', e); }
 }
 
 // ---------- Приглашения по ссылке (WhatsApp и т. п.) ----------
@@ -563,12 +612,12 @@ function randomCode() {
 }
 
 // Возвращает ссылку сразу (чтобы можно было открыть WhatsApp без задержки), а запись идёт в фоне.
-export function createInvite(habitName = null, days = null) {
+export function createInvite(habitName = null, days = null, photoRequired = false) {
   const code = randomCode();
   const url = `${appUrl()}?invite=${code}`;
   const saved = fb.setDoc(fb.doc(db, 'invites', code), {
     from: social.user.uid, nickname: social.profile.nickname,
-    habitName, habitKey: habitName ? keyOfName(habitName) : null, days,
+    habitName, habitKey: habitName ? keyOfName(habitName) : null, days, photoRequired: !!(habitName && photoRequired),
     createdAt: fb.serverTimestamp(),
   });
   return { code, url, saved };
@@ -594,7 +643,7 @@ export async function acceptInvite(inv, ensureHabit) {
     batch.set(fb.doc(fb.collection(db, 'challenges')), {
       participants: [inv.from, me],
       names: { [inv.from]: inv.nickname, [me]: social.profile.nickname },
-      habitName: inv.habitName, habitKey: inv.habitKey, days: inv.days,
+      habitName: inv.habitName, habitKey: inv.habitKey, days: inv.days, photoRequired: !!inv.photoRequired,
       status: 'active', startDay: today, progress: { [me]: challengeProgress(habit, today, inv.days, today) },
       invite: inv.code, createdAt: fb.serverTimestamp(),
     });
@@ -614,7 +663,10 @@ export async function deleteAccount() {
     batch.delete(fb.doc(db, 'users', f.uid, 'friends', uid));
   }
   for (const r of [...social.incoming, ...social.outgoing]) batch.delete(fb.doc(db, 'friendRequests', r.id));
-  for (const c of social.challenges) batch.delete(fb.doc(db, 'challenges', c.id));
+  for (const c of social.challenges) {
+    await cleanupChallengePhotos(c);
+    batch.delete(fb.doc(db, 'challenges', c.id));
+  }
   for (const d of myInvites.docs) batch.delete(d.ref);
   for (const id of social.joined) batch.delete(fb.doc(db, 'tournaments', id, 'participants', uid));
   for (const id of social.joined) {

@@ -7,7 +7,7 @@ import { factFor } from './facts.js';
 import { quoteFor } from './quotes.js';
 import { PLANS, goalLimit } from './plans.js';
 import { isNative, hasNativeGoogle, appUrl, nativeShare, copyText, openExternal, onBackButton } from './native.js';
-import { tournamentsAround, tournamentStatus, canJoin, FLAG_LIMIT } from './tournaments.js';
+import { tournamentsAround, tournamentStatus, canJoin, FLAG_LIMIT, tourProgress } from './tournaments.js';
 
 const STORAGE_KEY = 'habit-trainer-v1';
 const TAB_KEY = 'habit-trainer-tab';
@@ -52,11 +52,14 @@ let sharing = null;         // id привычки с открытой пане�
 let suggestions = null;     // случайные соперники
 let suggestionsLoading = false;
 let sentTo = {};            // кому уже бросили вызов из подборки
+let suggestPhoto = false;   // галочка «с фото» в подборе соперников
 const tourData = {};        // id турнира → { top, total, myPlace, loading }
 let tourOpen = null;        // турнир с раскрытой таблицей лидеров
 let feedOpen = null;        // турнир с раскрытой лентой фото
 let photoUploading = null;  // турнир, для которого загружается фото
-let photoFor = null;        // турнир, для которого выбирают фото
+let photoFor = null;        // { kind: 'tour' | 'ch', id } — для чего выбирают фото
+const challData = {};       // id вызова → { photos, loading }
+const cleanedCh = new Set(); // вызовы, чьи фото уже удалены после окончания
 let similar = null;         // результаты поиска единомышленников
 let similarLoading = false;
 let pendingInvite = null;   // { code, data?, status }
@@ -581,6 +584,7 @@ function renderChallenges() {
         <option value="__new"${showNew ? ' selected' : ''}>${t('ch.newOption')}</option></select></label>
       <label class="new-habit"${showNew ? '' : ' hidden'}>${t('ch.newLabel')}<input name="newHabit" maxlength="80" placeholder="${t('ch.newPh')}" autocomplete="off"></label>
       <label>${t('ch.daysLabel')}<select name="days">${CHALLENGE_DAYS.map(n => `<option value="${n}"${n === 21 ? ' selected' : ''}>${nd(n)}</option>`).join('')}</select></label>
+      <label class="check-row"><input type="checkbox" name="photoRequired"><span>${t('ch.photoOpt')} <span class="small">${t('ch.photoOptNote')}</span></span></label>
       ${targets.length ? `<label>${t('ch.opponent')}<select name="friend">${groupsHtml}</select></label>
         <button class="btn primary" type="submit">${t('ch.send')}</button>` : ''}
       <div class="or">${targets.length ? t('ch.orInvite') : t('ch.inviteOnly')}</div>
@@ -600,7 +604,7 @@ function renderChallenges() {
     if (ch.status === 'pending') {
       (ch.participants[1] === me ? groups.incoming : groups.waiting).push(`<div class="card challenge">
         ${title}
-        <div class="small">${t('ch.inRow', { n: ch.days, days: pw(ch.days, 'day') })}</div>
+        <div class="small">${t('ch.inRow', { n: ch.days, days: pw(ch.days, 'day') })}${ch.photoRequired ? ` · ${t('ch.photoBadge')}` : ''}</div>
         ${ch.participants[1] === me
           ? `<p>${t('ch.challengesYou', { name: e(otherName) })}</p><div class="row"><button class="btn primary" data-action="ch-accept" data-id="${ch.id}">${t('common.accept')}</button><button class="btn" data-action="ch-decline" data-id="${ch.id}">${t('ch.refuse')}</button></div>`
           : `<p class="small">${t('ch.waitingFor', { name: e(otherName) })}</p><button class="link-btn" data-action="ch-delete" data-id="${ch.id}">${t('ch.cancel')}</button>`}
@@ -613,10 +617,21 @@ function renderChallenges() {
         <button class="link-btn" data-action="ch-delete" data-id="${ch.id}">${t('common.remove')}</button></div>`);
       continue;
     }
-    // активный вызов: свой прогресс считаем по свежим отметкам
+    // активный вызов: свой прогресс считаем по свежим отметкам, а в вызове с фото — по фото обоих
     const myHabit = findByKey(ch.habitKey);
-    const mine = progressRow(t('common.you'), challengeProgress(myHabit, ch.startDay, ch.days, today), ch, today);
-    const theirs = progressRow(otherName, ch.progress?.[other], ch, today);
+    let myP, theirP, photos = [];
+    if (ch.photoRequired) {
+      if (!challData[ch.id]) loadChallenge(ch);
+      photos = challData[ch.id]?.photos || [];
+      const daysOf = uid => Object.fromEntries(photos.filter(p => p.uid === uid).map(p => [p.day, true]));
+      myP = tourProgress(daysOf(me), ch, today);
+      theirP = challData[ch.id]?.photos ? tourProgress(daysOf(other), ch, today) : null;
+    } else {
+      myP = challengeProgress(myHabit, ch.startDay, ch.days, today);
+      theirP = ch.progress?.[other];
+    }
+    const mine = progressRow(t('common.you'), myP, ch, today);
+    const theirs = progressRow(otherName, theirP, ch, today);
     const over = (mine.completed || mine.failed) && (theirs.completed || theirs.failed);
     let result = '';
     if (mine.completed && theirs.completed) result = t('ch.draw');
@@ -626,10 +641,29 @@ function renderChallenges() {
     else if (theirs.failed) result = t('ch.theyOut', { name: e(otherName) });
     else if (mine.failed) result = t('ch.youOut');
     const finished = mine.completed || theirs.completed || over;
+    // Вызов закончился — фото больше не нужны
+    if (finished && ch.photoRequired && challData[ch.id]?.photos?.length && !cleanedCh.has(ch.id)) {
+      cleanedCh.add(ch.id);
+      cloud.cleanupChallengePhotos(ch).then(() => { delete challData[ch.id]; render(); });
+    }
+    let photoHtml = '';
+    if (ch.photoRequired && !finished) {
+      const myToday = photos.find(p => p.uid === me && p.day === String(today));
+      const recent = [...photos].sort((a, b) => Number(b.day) - Number(a.day)).slice(0, 4);
+      photoHtml = `<div class="tour-today">
+        ${myToday ? `<span class="ok">${t('ch.photoAdded')}</span>`
+          : photoUploading === ch.id ? `<span class="small">${t('tour.photoUploading')}</span>`
+          : `<button class="btn primary small-btn" data-action="ch-photo" data-id="${ch.id}">${t('ch.addPhoto')}</button>`}
+        <div class="small">${t('ch.photoRule')}</div>
+        ${recent.length ? `<div class="feed mini">${recent.map(p => `<figure class="photo"><img src="${p.image}" alt="" loading="lazy">
+          <figcaption>${p.uid === me ? t('common.you') : e(otherName)} · ${shortDate(Number(p.day))}</figcaption></figure>`).join('')}</div>` : ''}
+        <div class="small">${t('ch.photosNote')}</div>
+      </div>`;
+    }
     (finished ? groups.done : groups.active).push(`<div class="card challenge${finished ? ' muted' : ''}">
       ${title}
-      <div class="small">${t('ch.inRow', { n: ch.days, days: pw(ch.days, 'day') })}${t('ch.since', { date: shortDate(ch.startDay) })}</div>
-      ${mine.html}${theirs.html}
+      <div class="small">${t('ch.inRow', { n: ch.days, days: pw(ch.days, 'day') })}${t('ch.since', { date: shortDate(ch.startDay) })}${ch.photoRequired ? ` · ${t('ch.photoBadge')}` : ''}</div>
+      ${mine.html}${theirs.html}${photoHtml}
       ${result ? `<p class="result">${result}</p>` : ''}
       ${!myHabit ? `<p class="small">${t('ch.noHabit')}<button class="link-btn" data-action="ch-addhabit" data-name="${e(ch.habitName)}">${t('ch.addLower')}</button></p>` : ''}
       <button class="link-btn" data-action="ch-delete" data-id="${ch.id}">${finished ? t('common.remove') : t('ch.giveUp')}</button>
@@ -809,7 +843,7 @@ function feedHtml(tr, data) {
   if (!data.photos?.length) return `<p class="small">${t('tour.feedEmpty')}</p>`;
   const me = social.user.uid;
   const iAmIn = social.joined.includes(tr.id);
-  return `<div class="feed">${data.photos.map(p => {
+  return `<p class="small">${t('tour.photosNote')}</p><div class="feed">${data.photos.map(p => {
     const flags = (p.flags || []).length;
     const rejected = flags >= FLAG_LIMIT;
     const mineFlag = (p.flags || []).includes(me);
@@ -820,6 +854,15 @@ function feedHtml(tr, data) {
           : p.uid !== me && iAmIn ? (mineFlag ? `<span class="small">${t('tour.flagged')}</span>` : `<button class="link-btn" data-action="tour-flag" data-id="${tr.id}" data-photo="${p.id}">${t('tour.flag')}</button>`) : ''}
       </figcaption></figure>`;
   }).join('')}</div>`;
+}
+
+function loadChallenge(ch) {
+  if (challData[ch.id]?.loading) return;
+  challData[ch.id] = { ...(challData[ch.id] || {}), loading: true };
+  cloud.loadChallengePhotos(ch)
+    .then(photos => { challData[ch.id] = { photos, loading: false }; })
+    .catch(err => { console.error(err); challData[ch.id] = { photos: [], loading: false }; })
+    .finally(render);
 }
 
 // Сжимаем фото до ~720 px и JPEG — чтобы хранить прямо в базе.
@@ -856,7 +899,8 @@ function suggestionsHtml(today) {
       <button class="link-btn" data-action="suggest-more"${suggestionsLoading ? ' disabled' : ''}>${t('suggest.more')}</button></div>
     <p class="small">${t('suggest.note')}</p>
     <div class="row"><span class="small">${t('suggest.daysLabel')}</span>
-      <select class="inline-select" id="suggestDays">${CHALLENGE_DAYS.map(n => `<option value="${n}"${n === 7 ? ' selected' : ''}>${nd(n)}</option>`).join('')}</select></div>`;
+      <select class="inline-select" id="suggestDays">${CHALLENGE_DAYS.map(n => `<option value="${n}"${n === 7 ? ' selected' : ''}>${nd(n)}</option>`).join('')}</select>
+      <label class="check-row inline"><input type="checkbox" id="suggestPhoto"${suggestPhoto ? ' checked' : ''}><span>${t('suggest.photo')}</span></label></div>`;
   if (suggestionsLoading && !suggestions) html += `<p class="small">${t('common.searching')}</p>`;
   else if (!suggestions?.length) html += `<p class="small">${t('suggest.none')}</p>`;
   for (const p of suggestions || []) {
@@ -918,7 +962,7 @@ function renderInviteBanner() {
       const d = inv.data;
       if (d.from === social.user.uid) body = `<p>${t('ib.own')}</p><button class="btn" data-action="invite-dismiss">${t('common.close')}</button>`;
       else body = `<p><b>@${e(d.nickname)}</b> ${d.habitName
-          ? t('ib.challenge', { habit: e(nameOfKey(d.habitKey, d.habitName)), n: d.days, days: pw(d.days, 'day') })
+          ? t('ib.challenge', { habit: e(nameOfKey(d.habitKey, d.habitName)), n: d.days, days: pw(d.days, 'day') }) + (d.photoRequired ? ' ' + t('ib.photoRequired') : '')
           : t('ib.friend')}</p>
         <div class="row"><button class="btn primary" data-action="invite-accept">${d.habitName ? t('ib.acceptCh') : t('ib.addFriend')}</button>
         <button class="btn" data-action="invite-dismiss">${t('ib.notNow')}</button></div>`;
@@ -927,15 +971,15 @@ function renderInviteBanner() {
   setHTML(el, `<div class="card invite-banner">${body}${flashHtml('inviteBanner')}</div>`);
 }
 
-function inviteText(habitName, days, url) {
+function inviteText(habitName, days, url, photoRequired = false) {
   return habitName
-    ? t('invite.textChallenge', { habit: displayName(habitName), n: days, days: pw(days, 'day'), url })
+    ? t(photoRequired ? 'invite.textChallengePhoto' : 'invite.textChallenge', { habit: displayName(habitName), n: days, days: pw(days, 'day'), url })
     : t('invite.textFriend', { nick: social.profile.nickname, url });
 }
 
-function shareInvite(via, flashKey, habitName = null, days = null) {
-  const inv = cloud.createInvite(habitName, days);
-  const text = inviteText(habitName, days, inv.url);
+function shareInvite(via, flashKey, habitName = null, days = null, photoRequired = false) {
+  const inv = cloud.createInvite(habitName, days, photoRequired);
+  const text = inviteText(habitName, days, inv.url, photoRequired);
   inv.saved.catch(err => { console.error(err); flash[flashKey] = { text: t('invite.saveFail'), error: true }; render(); });
   if (via === 'whatsapp') {
     openExternal('https://wa.me/?text=' + encodeURIComponent(text));
@@ -977,7 +1021,10 @@ async function run(key, fn) {
 }
 
 function goTab(name) {
-  if (name === 'challenges') for (const k of Object.keys(tourData)) if (!tourData[k].loading) delete tourData[k]; // свежие таблицы турниров
+  if (name === 'challenges') {   // свежие таблицы турниров и фото вызовов
+    for (const k of Object.keys(tourData)) if (!tourData[k].loading) delete tourData[k];
+    for (const k of Object.keys(challData)) if (!challData[k].loading) delete challData[k];
+  }
   tab = name;
   try { localStorage.setItem(TAB_KEY, tab); } catch (err) {}
   render(); window.scrollTo(0, 0);
@@ -1038,7 +1085,7 @@ document.addEventListener('click', ev => {
     case 'ch-invite': {
       const form = el.closest('form');
       const name = formHabitName(form);
-      if (name) shareInvite(el.dataset.via, 'challenge', name, Number(form.days.value));
+      if (name) shareInvite(el.dataset.via, 'challenge', name, Number(form.days.value), form.photoRequired.checked);
       break;
     }
     case 'share-edit': sharing = sharing === id ? null : id; flash.share = null; render(); break;
@@ -1068,7 +1115,8 @@ document.addEventListener('click', ev => {
       render();
       break;
     }
-    case 'tour-photo': photoFor = id; $('photoInput').value = ''; $('photoInput').click(); break;
+    case 'tour-photo': photoFor = { kind: 'tour', id }; $('photoInput').value = ''; $('photoInput').click(); break;
+    case 'ch-photo': photoFor = { kind: 'ch', id }; $('photoInput').value = ''; $('photoInput').click(); break;
     case 'tour-flag': {
       const tr = tournamentsAround(todayNumber()).find(x => x.id === id);
       const photo = tourData[id]?.photos?.find(p => p.id === el.dataset.photo);
@@ -1081,7 +1129,7 @@ document.addEventListener('click', ev => {
       const mine = findByKey(el.dataset.key);
       const days = Number($('suggestDays')?.value || 7);
       if (p && mine) run('suggest', async () => {
-        await cloud.createChallenge(p, mine.name, days);
+        await cloud.createChallenge(p, mine.name, days, suggestPhoto);
         sentTo[p.uid + '|' + el.dataset.key] = true;
         return t('suggest.sentMsg', { nick: p.nickname });
       });
@@ -1108,9 +1156,27 @@ document.addEventListener('click', ev => {
 });
 
 document.addEventListener('change', ev => {
+  if (ev.target.id === 'suggestPhoto') { suggestPhoto = ev.target.checked; return; }
+  if (ev.target.id === 'photoInput' && photoFor?.kind === 'ch') {
+    const file = ev.target.files?.[0];
+    const ch = social.challenges.find(c => c.id === photoFor.id);
+    if (!file || !ch) return;
+    photoUploading = ch.id; render();
+    run('challenge', async () => {
+      try {
+        await cloud.addChallengePhoto(ch, await compressImage(file));
+        // фото — это и отметка привычки за сегодня
+        const h = findByKey(ch.habitKey), today = dateKey(new Date());
+        if (h && !h.done[today]) { h.done[today] = true; save(); }
+        loadChallenge(ch);
+        return t('ch.photoSaved');
+      } finally { photoUploading = null; }
+    });
+    return;
+  }
   if (ev.target.id === 'photoInput') {
     const file = ev.target.files?.[0];
-    const tr = tournamentsAround(todayNumber()).find(x => x.id === photoFor);
+    const tr = tournamentsAround(todayNumber()).find(x => x.id === photoFor?.id);
     if (!file || !tr) return;
     photoUploading = tr.id; render();
     run('tour', async () => {
@@ -1172,7 +1238,7 @@ document.addEventListener('submit', ev => {
     const name = formHabitName(form);
     if (!name) return;
     run('challenge', async () => {
-      await cloud.createChallenge(target, name, Number(fd.get('days')));
+      await cloud.createChallenge(target, name, Number(fd.get('days')), !!fd.get('photoRequired'));
       return t('ch.sentTo', { name: target.label });
     });
   }

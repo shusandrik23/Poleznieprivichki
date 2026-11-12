@@ -131,7 +131,7 @@ service cloud.firestore {
     match /tournaments/{tid}/photos/{pid} {
       allow read: if signedIn();
       allow create: if signedIn()
-        && request.resource.data.keys().hasOnly(['uid', 'nickname', 'day', 'image', 'createdAt', 'flags'])
+        && request.resource.data.keys().hasOnly(['uid', 'nickname', 'day', 'image', 'createdAt', 'flags', 'expires'])
         && request.resource.data.uid == me()
         && pid == me() + '_' + request.resource.data.day
         && request.resource.data.day in todayKeys()
@@ -139,6 +139,9 @@ service cloud.firestore {
         && request.resource.data.image.size() < 400000
         && request.resource.data.createdAt == request.time
         && request.resource.data.flags == []
+        && request.resource.data.expires is int
+        && request.resource.data.expires >= int(request.resource.data.day)
+        && request.resource.data.expires <= int(request.resource.data.day) + 400
         && exists(/databases/$(db)/documents/tournaments/$(tid)/participants/$(me()));
       allow update: if signedIn() && me() != resource.data.uid
         && exists(/databases/$(db)/documents/tournaments/$(tid)/participants/$(me()))
@@ -147,7 +150,8 @@ service cloud.firestore {
         && request.resource.data.flags.hasAll(resource.data.flags)
         && me() in request.resource.data.flags
         && !(me() in resource.data.flags);
-      allow delete: if signedIn() && resource.data.uid == me();
+      // своё фото — в любой момент; чужое — после окончания турнира (expires — последний день турнира)
+      allow delete: if signedIn() && (resource.data.uid == me() || dayNow() > resource.data.get('expires', 999999));
     }
 
     // Вызовы между двумя людьми: другом, человеком из поиска или по ссылке-приглашению.
@@ -168,12 +172,14 @@ service cloud.firestore {
             && request.resource.data.status == 'active'
             && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.from == request.resource.data.participants[0]
             && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.habitKey == request.resource.data.habitKey
-            && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.days == request.resource.data.days)
+            && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.days == request.resource.data.days
+            && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.get('photoRequired', false) == request.resource.data.get('photoRequired', false))
         );
       allow update: if signedIn() && me() in resource.data.participants
         && request.resource.data.participants == resource.data.participants
         && request.resource.data.days == resource.data.days
         && request.resource.data.habitKey == resource.data.habitKey
+        && request.resource.data.get('photoRequired', false) == resource.data.get('photoRequired', false)
         && (
           // приглашённый принимает или отклоняет вызов
           (resource.data.status == 'pending'
@@ -185,6 +191,28 @@ service cloud.firestore {
             && request.resource.data.progress.diff(resource.data.progress).affectedKeys().hasOnly([me()]))
         );
       allow delete: if signedIn() && me() in resource.data.participants;
+    }
+
+    // Фото в вызове с обязательным подтверждением: challenges/{id}/photos/{uid}_{день}.
+    // Видят и добавляют только участники; добавить можно только за сегодня.
+    match /challenges/{cid}/photos/{pid} {
+      function challenge() { return get(/databases/$(db)/documents/challenges/$(cid)).data; }
+      allow read: if signedIn() && me() in challenge().participants;
+      allow create: if signedIn()
+        && me() in challenge().participants
+        && challenge().status == 'active'
+        && request.resource.data.keys().hasOnly(['uid', 'day', 'image', 'createdAt', 'expires'])
+        && request.resource.data.uid == me()
+        && pid == me() + '_' + request.resource.data.day
+        && request.resource.data.day in todayKeys()
+        && request.resource.data.image is string
+        && request.resource.data.image.size() < 400000
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.expires is int
+        && request.resource.data.expires >= int(request.resource.data.day)
+        && request.resource.data.expires <= int(request.resource.data.day) + 400;
+      // удалить может автор, любой участник (вызов закончился или удаляется) или кто угодно после срока
+      allow delete: if signedIn() && (resource.data.uid == me() || dayNow() > resource.data.expires || me() in challenge().participants);
     }
   }
 }
