@@ -12,7 +12,6 @@ import { tournamentsAround, tournamentStatus, canJoin, FLAG_LIMIT, tourProgress 
 const STORAGE_KEY = 'habit-trainer-v1';
 const TAB_KEY = 'habit-trainer-tab';
 const INVITE_KEY = 'habit-trainer-invite';
-const QUOTE_KEY = 'habit-trainer-quote-day';
 
 const GOAL_PRESETS = [7, 21, 30, 66, 100];
 const CHALLENGE_DAYS = [7, 14, 21, 30, 66, 100];
@@ -1312,23 +1311,19 @@ document.addEventListener('submit', ev => {
 // Перерисовываем при смене дня, если вкладка открыта через полночь.
 let lastKey = dateKey(new Date());
 setInterval(() => { const k = dateKey(new Date()); if (k !== lastKey) { lastKey = k; factOffset = 0; dailyVisit(); render(); } }, 60000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { dailyVisit(); render(); showQuote(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { dailyVisit(); render(); } });
 
-// Цитата дня — при первом запуске за день.
+// Цитата дня
 function fillQuote() {
   const q = quoteFor(todayNumber());
   $('quoteText').textContent = lang === 'ru' ? `«${q.text}»` : `“${q.text}”`;
   $('quoteAuthor').textContent = '— ' + q.author;
 }
-function showQuote(force = false) {
-  const day = todayNumber();
-  let shown = null;
-  try { shown = localStorage.getItem(QUOTE_KEY); } catch (err) {}
-  if (!force && shown === String(day)) return;
+// Цитата дня — при каждом запуске приложения (не при возврате из свёрнутого состояния).
+function showQuote() {
   fillQuote();
   $('quote').hidden = false;
   $('quoteClose').focus();
-  try { localStorage.setItem(QUOTE_KEY, String(day)); } catch (err) {}
 }
 function hideQuote() { $('quote').hidden = true; }
 $('quoteClose').addEventListener('click', hideQuote);
