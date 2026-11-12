@@ -1,6 +1,8 @@
 // Облачная часть: вход, синхронизация привычек, друзья, поиск по привычкам, приглашения и вызовы (Firebase).
 import { firebaseConfig, appleSignInEnabled } from '../firebase-config.js';
-import { streaks, habitKey, challengeProgress, todayNumber, dateKey } from './core.js';
+import { streaks, challengeProgress, todayNumber, dateKey } from './core.js';
+import { keyOf, keyOfName, normKey } from './catalog.js';
+import * as I from './i18n.js';
 import { tournamentById } from './tournaments.js';
 import { isNative, hasNativeGoogle, nativeGoogleIdToken, nativeSignOut, appUrl } from './native.js';
 
@@ -70,7 +72,7 @@ export async function initCloud(h) {
     fb.onAuthStateChanged(auth, onUser);
   } catch (e) {
     console.error(e);
-    social.error = 'Не удалось подключиться к серверу. Проверьте интернет.';
+    social.error = 'connect';
   }
   changed();
 }
@@ -80,7 +82,7 @@ export async function initCloud(h) {
 export async function signInGoogle() {
   if (isNative) {
     // В Android-приложении всплывающие окна не работают — входим через системный выбор аккаунта Google.
-    if (!hasNativeGoogle()) throw new Error('Вход через Google в приложении появится после подключения Firebase.');
+    if (!hasNativeGoogle()) throw new Error(I.t('err.nativeSignin'));
     const idToken = await nativeGoogleIdToken();
     if (!idToken) return;
     await fb.signInWithCredential(auth, fb.GoogleAuthProvider.credential(idToken));
@@ -209,7 +211,7 @@ function watchFriendStats() {
 function mergeStates(remote, local) {
   const out = (remote.habits || []).map(h => ({ ...h, done: { ...h.done } }));
   for (const lh of local.habits) {
-    const rh = out.find(h => habitKey(h.name) === habitKey(lh.name));
+    const rh = out.find(h => keyOf(h) === keyOf(lh));
     if (rh) {
       Object.assign(rh.done, lh.done);
       if (lh.goal && !rh.goal) rh.goal = lh.goal;
@@ -233,7 +235,7 @@ function statsList(state) {
   const today = dateKey(new Date());
   return state.habits.map(h => {
     const s = streaks(h, today);
-    return { key: habitKey(h.name), name: h.name, cur: s.current, end: s.end, best: s.best, goal: h.goal || null };
+    return { key: keyOf(h), name: h.name, cur: s.current, end: s.end, best: s.best, goal: h.goal || null };
   });
 }
 
@@ -275,7 +277,7 @@ async function syncChallenges() {
   const today = todayNumber();
   for (const ch of social.challenges) {
     if (ch.status !== 'active') continue;
-    const habit = state.habits.find(h => habitKey(h.name) === ch.habitKey);
+    const habit = state.habits.find(h => keyOf(h) === normKey(ch.habitKey));
     const p = challengeProgress(habit, ch.startDay, ch.days, today);
     const old = ch.progress?.[uid];
     if (old && old.count === p.count && old.completed === p.completed && old.failed === p.failed) continue;
@@ -293,11 +295,11 @@ export const NICK_RE = /^[a-z0-9_]{3,20}$/;
 export async function claimNickname(nickname, inviteCode = null) {
   const uid = social.user.uid;
   nickname = nickname.trim().toLowerCase().replace(/^@/, '');
-  if (!NICK_RE.test(nickname)) throw new Error('Ник: 3–20 символов, латинские буквы, цифры и «_».');
+  if (!NICK_RE.test(nickname)) throw new Error(I.t('err.nick'));
   if (social.profile?.nickname === nickname) return;
   const ref = fb.doc(db, 'usernames', nickname);
   const taken = await fb.getDoc(ref);
-  if (taken.exists() && taken.data().uid !== uid) throw new Error(`Ник @${nickname} уже занят, выберите другой.`);
+  if (taken.exists() && taken.data().uid !== uid) throw new Error(I.t('err.nickTaken', { nick: nickname }));
   const batch = fb.writeBatch(db);
   if (social.profile) batch.delete(fb.doc(db, 'usernames', social.profile.nickname));
   if (!taken.exists()) batch.set(ref, { uid });
@@ -331,16 +333,16 @@ export async function sendFriendRequest(nickname) {
   const me = social.user.uid;
   nickname = nickname.trim().toLowerCase().replace(/^@/, '');
   if (!nickname) return;
-  if (nickname === social.profile.nickname) throw new Error('Это ваш собственный ник 🙂');
+  if (nickname === social.profile.nickname) throw new Error(I.t('err.ownNick'));
   const u = await fb.getDoc(fb.doc(db, 'usernames', nickname));
-  if (!u.exists()) throw new Error(`Пользователь @${nickname} не найден.`);
+  if (!u.exists()) throw new Error(I.t('err.userNotFound', { nick: nickname }));
   return sendFriendRequestTo({ uid: u.data().uid, nickname });
 }
 
 export async function sendFriendRequestTo(person) {
   const me = social.user.uid;
   const to = person.uid;
-  if (social.friends.some(f => f.uid === to)) throw new Error(`@${person.nickname} уже у вас в друзьях.`);
+  if (social.friends.some(f => f.uid === to)) throw new Error(I.t('err.alreadyFriend', { nick: person.nickname }));
   const reverse = social.incoming.find(r => r.from === to);
   if (reverse) { await respondFriendRequest(reverse, true); return 'accepted'; }
   await fb.setDoc(fb.doc(db, 'friendRequests', `${me}_${to}`), {
@@ -389,7 +391,7 @@ export async function findSimilar(perHabit = 15) {
   }));
   const myKeys = new Set(keys);
   return [...people.values()]
-    .map(p => ({ ...p, common: p.habits.filter(h => myKeys.has(h.key)) }))
+    .map(p => ({ ...p, common: p.habits.filter(h => myKeys.has(normKey(h.key))) }))
     .sort((a, b) => b.common.length - a.common.length || a.nickname.localeCompare(b.nickname))
     .slice(0, 30);
 }
@@ -409,7 +411,7 @@ export async function suggestOpponents(count = 5) {
 const lastTournamentWrite = {};
 
 function tournamentProgress(t) {
-  const habit = hooks.getState().habits.find(h => habitKey(h.name) === t.habitKey);
+  const habit = hooks.getState().habits.find(h => keyOf(h) === t.habitKey);
   return challengeProgress(habit, t.startDay, t.days, todayNumber());
 }
 
@@ -479,7 +481,7 @@ export async function createChallenge(target, habitName, days) {
   await fb.addDoc(fb.collection(db, 'challenges'), {
     participants: [me, target.uid],
     names: { [me]: social.profile.nickname, [target.uid]: target.nickname },
-    habitName, habitKey: habitKey(habitName), days,
+    habitName, habitKey: keyOfName(habitName), days,
     status: 'pending', startDay: null, progress: {},
     createdAt: fb.serverTimestamp(),
   });
@@ -491,7 +493,7 @@ export async function respondChallenge(ch, accept, ensureHabit) {
   if (!accept) { await fb.updateDoc(fb.doc(db, 'challenges', ch.id), { status: 'declined' }); return; }
   ensureHabit(ch.habitName);
   const today = todayNumber();
-  const habit = hooks.getState().habits.find(h => habitKey(h.name) === ch.habitKey);
+  const habit = hooks.getState().habits.find(h => keyOf(h) === normKey(ch.habitKey));
   await fb.updateDoc(fb.doc(db, 'challenges', ch.id), {
     status: 'active', startDay: today,
     [`progress.${me}`]: challengeProgress(habit, today, ch.days, today),
@@ -516,7 +518,7 @@ export function createInvite(habitName = null, days = null) {
   const url = `${appUrl()}?invite=${code}`;
   const saved = fb.setDoc(fb.doc(db, 'invites', code), {
     from: social.user.uid, nickname: social.profile.nickname,
-    habitName, habitKey: habitName ? habitKey(habitName) : null, days,
+    habitName, habitKey: habitName ? keyOfName(habitName) : null, days,
     createdAt: fb.serverTimestamp(),
   });
   return { code, url, saved };
@@ -529,7 +531,7 @@ export async function getInvite(code) {
 
 export async function acceptInvite(inv, ensureHabit) {
   const me = social.user.uid;
-  if (inv.from === me) throw new Error('Это ваша собственная ссылка — отправьте её другу.');
+  if (inv.from === me) throw new Error(I.t('err.ownInvite'));
   const batch = fb.writeBatch(db);
   if (!social.friends.some(f => f.uid === inv.from)) {
     batch.set(fb.doc(db, 'users', me, 'friends', inv.from), { nickname: inv.nickname, since: fb.serverTimestamp(), invite: inv.code });
@@ -538,7 +540,7 @@ export async function acceptInvite(inv, ensureHabit) {
   if (inv.habitName) {
     ensureHabit(inv.habitName);
     const today = todayNumber();
-    const habit = hooks.getState().habits.find(h => habitKey(h.name) === inv.habitKey);
+    const habit = hooks.getState().habits.find(h => keyOf(h) === normKey(inv.habitKey));
     batch.set(fb.doc(fb.collection(db, 'challenges')), {
       participants: [inv.from, me],
       names: { [inv.from]: inv.nickname, [me]: social.profile.nickname },

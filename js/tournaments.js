@@ -1,27 +1,23 @@
 // Турниры: общие для всех пользователей серии, которые стартуют в определённый день.
-import { dayNumber, habitKey } from './core.js';
+import { dayNumber } from './core.js';
+import { lang, t } from './i18n.js';
+import { catalogName } from './catalog.js';
 
-// Каждый понедельник автоматически стартует турнир недели (7 дней). Привычки идут по кругу.
+// Каждый понедельник автоматически стартует турнир недели (7 дней). Привычки (коды из js/catalog.js) идут по кругу.
 export const WEEKLY_HABITS = [
-  '💧 Выпить 2 литра воды',
-  '🚶 Пройти 8 000 шагов',
-  '📖 Читать 20 минут',
-  '🏃 Зарядка 10 минут',
-  '📵 Час без телефона перед сном',
-  '🍬 Без сладкого',
-  '🧘 Медитация 10 минут',
-  '🪜 Лестница вместо лифта',
-  '😴 Лечь спать до 23:00',
-  '💪 5 отжиманий',
+  'water', 'steps', 'read', 'morning_exercise', 'no_phone_bed',
+  'no_sugar', 'meditate', 'stairs', 'sleep', 'pushups',
 ];
 
 // Особые турниры к датам. Чтобы добавить новый — допишите объект в этот список.
-// id — латиницей и уникальный; start — первый день турнира.
+// id — латиницей и уникальный; habit — код из js/catalog.js; start — первый день турнира.
 export const SPECIAL = [
-  { id: 'newyear2027', title: 'Новогодний марафон', habit: '🏃 Зарядка 10 минут', start: '2027-01-01', days: 21,
-    text: 'Начните год с движения: 21 день зарядки подряд вместе со всеми.' },
-  { id: 'spring2027', title: 'Весенний детокс', habit: '📱 Не больше часа соцсетей', start: '2027-03-01', days: 14,
-    text: 'Две недели меньше ленты — больше времени на себя.' },
+  { id: 'newyear2027', habit: 'morning_exercise', start: '2027-01-01', days: 21,
+    title: { ru: 'Новогодний марафон', en: 'New Year marathon' },
+    text: { ru: 'Начните год с движения: 21 день зарядки подряд вместе со всеми.', en: 'Start the year moving: 21 days of exercise in a row, together with everyone.' } },
+  { id: 'spring2027', habit: 'less_social', start: '2027-03-01', days: 14,
+    title: { ru: 'Весенний детокс', en: 'Spring detox' },
+    text: { ru: 'Две недели меньше ленты — больше времени на себя.', en: 'Two weeks of less scrolling — more time for yourself.' } },
 ];
 
 const SHOW_SPECIAL_BEFORE = 14; // за сколько дней показывать анонс особого турнира
@@ -31,13 +27,14 @@ const JOIN_GRACE = 1;           // присоединиться можно до 
 export function mondayOf(n) { return n - ((n - 4) % 7 + 7) % 7; }
 
 function weekly(startDay) {
-  const habit = WEEKLY_HABITS[Math.floor(startDay / 7) % WEEKLY_HABITS.length];
-  return { id: 'w' + startDay, kind: 'weekly', title: 'Турнир недели', habit, habitKey: habitKey(habit), startDay, days: 7,
-    text: 'Семь дней подряд — и вы в таблице победителей.' };
+  const cid = WEEKLY_HABITS[Math.floor(startDay / 7) % WEEKLY_HABITS.length];
+  return { id: 'w' + startDay, kind: 'weekly', title: t('tour.weeklyTitle'), cid, habit: catalogName(cid), habitKey: 'c:' + cid,
+    startDay, days: 7, text: t('tour.weeklyText') };
 }
 
 function special(s) {
-  return { ...s, kind: 'special', habitKey: habitKey(s.habit), startDay: dayNumber(s.start) };
+  return { id: s.id, kind: 'special', title: s.title[lang], text: s.text[lang], cid: s.habit, habit: catalogName(s.habit),
+    habitKey: 'c:' + s.habit, startDay: dayNumber(s.start), days: s.days };
 }
 
 export function tournamentById(id) {
@@ -56,10 +53,10 @@ export function tournamentsAround(today) {
   return list.sort((a, b) => a.startDay - b.startDay);
 }
 
-export function tournamentStatus(t, today) {
-  if (today < t.startDay) return 'upcoming';
-  if (today < t.startDay + t.days) return 'active';
+export function tournamentStatus(tr, today) {
+  if (today < tr.startDay) return 'upcoming';
+  if (today < tr.startDay + tr.days) return 'active';
   return 'finished';
 }
 
-export function canJoin(t, today) { return today <= t.startDay + JOIN_GRACE; }
+export function canJoin(tr, today) { return today <= tr.startDay + JOIN_GRACE; }
