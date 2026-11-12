@@ -1,0 +1,93 @@
+rules_version = '2';
+
+// Правила доступа к данным «Полезных привычек».
+// Вставьте этот файл в консоли Firebase: Firestore Database → Rules → Publish.
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signedIn() { return request.auth != null; }
+    function me() { return request.auth.uid; }
+    // b есть в списке друзей у a
+    function isFriend(a, b) { return exists(/databases/$(db)/documents/users/$(a)/friends/$(b)); }
+
+    // Занятые ники: usernames/{ник} → { uid }
+    match /usernames/{name} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && name.matches('^[a-z0-9_]{3,20}$')
+        && request.resource.data.keys().hasOnly(['uid'])
+        && request.resource.data.uid == me();
+      allow delete: if signedIn() && resource.data.uid == me();
+    }
+
+    // Публичный профиль: только ник и имя. Виден всем вошедшим (нужно для поиска друзей).
+    match /profiles/{uid} {
+      allow read: if signedIn();
+      allow create, update: if signedIn() && uid == me()
+        && request.resource.data.keys().hasOnly(['nickname', 'name'])
+        && request.resource.data.nickname is string
+        && getAfter(/databases/$(db)/documents/usernames/$(request.resource.data.nickname)).data.uid == me()
+        && request.resource.data.name is string
+        && request.resource.data.name.size() <= 40;
+      allow delete: if signedIn() && uid == me();
+    }
+
+    // Серии по привычкам. Видны только самому пользователю и его друзьям.
+    match /stats/{uid} {
+      allow read: if signedIn() && (uid == me() || isFriend(uid, me()));
+      allow write: if signedIn() && uid == me();
+    }
+
+    // Личные данные (все отметки) — только владельцу.
+    match /users/{uid} {
+      allow read, write: if signedIn() && uid == me();
+
+      // Друзья. Запись появляется у обоих, когда получатель принимает заявку.
+      match /friends/{other} {
+        allow read: if signedIn() && uid == me();
+        allow create: if signedIn() && (
+          (me() == uid && exists(/databases/$(db)/documents/friendRequests/$(other + '_' + uid)))
+          || (me() == other && exists(/databases/$(db)/documents/friendRequests/$(uid + '_' + other)))
+        );
+        allow delete: if signedIn() && (me() == uid || me() == other);
+      }
+    }
+
+    // Заявки в друзья: friendRequests/{от}_{кому}
+    match /friendRequests/{id} {
+      allow read: if signedIn() && (resource.data.from == me() || resource.data.to == me());
+      allow create: if signedIn()
+        && request.resource.data.from == me()
+        && request.resource.data.to != me()
+        && id == me() + '_' + request.resource.data.to
+        && exists(/databases/$(db)/documents/profiles/$(request.resource.data.to));
+      allow delete: if signedIn() && (resource.data.from == me() || resource.data.to == me());
+    }
+
+    // Вызовы между двумя друзьями.
+    match /challenges/{id} {
+      allow read: if signedIn() && me() in resource.data.participants;
+      allow create: if signedIn()
+        && request.resource.data.participants.size() == 2
+        && request.resource.data.participants[0] == me()
+        && request.resource.data.status == 'pending'
+        && request.resource.data.days is int
+        && request.resource.data.days >= 1 && request.resource.data.days <= 365
+        && isFriend(me(), request.resource.data.participants[1]);
+      allow update: if signedIn() && me() in resource.data.participants
+        && request.resource.data.participants == resource.data.participants
+        && request.resource.data.days == resource.data.days
+        && request.resource.data.habitKey == resource.data.habitKey
+        && (
+          // приглашённый принимает или отклоняет вызов
+          (resource.data.status == 'pending'
+            && me() == resource.data.participants[1]
+            && request.resource.data.status in ['active', 'declined'])
+          // каждый обновляет только свой прогресс
+          || (request.resource.data.status == resource.data.status
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['progress'])
+            && request.resource.data.progress.diff(resource.data.progress).affectedKeys().hasOnly([me()]))
+        );
+      allow delete: if signedIn() && me() in resource.data.participants;
+    }
+  }
+}
