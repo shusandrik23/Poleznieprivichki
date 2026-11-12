@@ -20,6 +20,7 @@ export const SPECIAL = [
     text: { ru: 'Две недели меньше ленты — больше времени на себя.', en: 'Two weeks of less scrolling — more time for yourself.' } },
 ];
 
+export const FLAG_LIMIT = 3;    // столько отметок «не похоже на правду» — и день с фото не засчитывается
 const SHOW_SPECIAL_BEFORE = 14; // за сколько дней показывать анонс особого турнира
 const JOIN_GRACE = 1;           // присоединиться можно до конца второго дня
 
@@ -60,3 +61,14 @@ export function tournamentStatus(tr, today) {
 }
 
 export function canJoin(tr, today) { return today <= tr.startDay + JOIN_GRACE; }
+
+// Прогресс в турнире по отметкам на сервере: дни подряд с первого дня турнира.
+// checks — { 'номер дня': время }, rejected — дни, чьи фото участники сочли неправдоподобными.
+export function tourProgress(checks, tr, today, rejected) {
+  const ok = n => !!checks[String(n)] && !(rejected && rejected.has(String(n)));
+  let count = 0, d = tr.startDay;
+  while (d <= today && count < tr.days && ok(d)) { count++; d++; }
+  const completed = count >= tr.days;
+  const failed = !completed && d < today;
+  return { count, completed, failed };
+}

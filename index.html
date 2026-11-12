@@ -259,6 +259,15 @@
   }
   .freeze-hint { grid-column: 1 / -1; margin: 8px 0 0; font-size: 13px; color: var(--muted); }
   .day.frozen { background: #e8f4fd; border-color: #5aa9e6; }
+  .tour-today { margin-top: 10px; padding: 8px 10px; border-radius: 10px; background: var(--bg); font-size: 14px; display: grid; gap: 6px; }
+  .tour-today .ok { color: var(--accent); font-weight: 600; }
+  .photos-badge { font-size: 12px; color: var(--muted); font-weight: 400; }
+  .feed { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-top: 10px; }
+  .photo { margin: 0; border: 1px solid var(--line); border-radius: 10px; overflow: hidden; background: var(--card); }
+  .photo img { width: 100%; aspect-ratio: 1; object-fit: cover; display: block; }
+  .photo figcaption { padding: 6px 8px; font-size: 12px; display: grid; gap: 2px; }
+  .photo.rejected img { opacity: .35; filter: grayscale(1); }
+  .photo .rej { color: var(--danger); font-weight: 600; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -312,6 +321,7 @@
     <button class="btn primary quote-btn" id="quoteClose" data-i18n="quote.start">Начать день</button>
   </div>
 </div>
+<input type="file" id="photoInput" accept="image/*" capture="environment" hidden>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>

@@ -7,7 +7,7 @@ import { factFor } from './facts.js';
 import { quoteFor } from './quotes.js';
 import { PLANS, goalLimit } from './plans.js';
 import { isNative, hasNativeGoogle, appUrl, nativeShare, copyText, openExternal, onBackButton } from './native.js';
-import { tournamentsAround, tournamentStatus, canJoin } from './tournaments.js';
+import { tournamentsAround, tournamentStatus, canJoin, FLAG_LIMIT } from './tournaments.js';
 
 const STORAGE_KEY = 'habit-trainer-v1';
 const TAB_KEY = 'habit-trainer-tab';
@@ -54,6 +54,9 @@ let suggestionsLoading = false;
 let sentTo = {};            // кому уже бросили вызов из подборки
 const tourData = {};        // id турнира → { top, total, myPlace, loading }
 let tourOpen = null;        // турнир с раскрытой таблицей лидеров
+let feedOpen = null;        // турнир с раскрытой лентой фото
+let photoUploading = null;  // турнир, для которого загружается фото
+let photoFor = null;        // турнир, для которого выбирают фото
 let similar = null;         // результаты поиска единомышленников
 let similarLoading = false;
 let pendingInvite = null;   // { code, data?, status }
@@ -747,30 +750,44 @@ function tournamentsHtml(today) {
     const joined = social.joined.includes(tr.id);
     const data = tourData[tr.id];
     if (!data) loadTour(tr);
-    const mine = joined ? challengeProgress(findByKey(tr.habitKey), tr.startDay, tr.days, today) : null;
+    const mine = data?.me;   // прогресс по отметкам на сервере
     const end = tr.startDay + tr.days - 1;
     const status = st === 'upcoming' ? startWord(tr, today) : st === 'active' ? t('tour.going', { d: today - tr.startDay + 1, n: tr.days }) : t('tour.finished');
     let mineHtml = '';
-    if (joined && st !== 'upcoming') {
-      const failed = !mine.completed && tr.startDay + mine.count < today;
-      mineHtml = `<div class="prow${mine.completed ? ' win' : ''}${failed ? ' out' : ''}"><div class="row-between"><span>${t('common.you')}</span>
-        <span class="small">${mine.count} / ${tr.days} · ${mine.completed ? t('ch.statusDone') : failed ? t('tour.youOut') : t('ch.statusPlaying')}${data?.myPlace ? t('tour.place', { n: data.myPlace }) : ''}</span></div>
+    if (joined && st !== 'upcoming' && mine) {
+      mineHtml = `<div class="prow${mine.completed ? ' win' : ''}${mine.failed ? ' out' : ''}"><div class="row-between"><span>${t('common.you')}</span>
+        <span class="small">${mine.count} / ${tr.days} · ${mine.completed ? t('ch.statusDone') : mine.failed ? t('tour.youOut') : t('ch.statusPlaying')}${data?.myPlace ? t('tour.place', { n: data.myPlace }) : ''}</span></div>
         <div class="bar"><div class="fill" style="width:${mine.count / tr.days * 100}%"></div></div></div>`;
     }
+    // Сегодняшняя отметка и фото-подтверждение
+    let todayHtml = '';
+    if (joined && st === 'active' && data && !data.loading) {
+      const checked = !!mine?.checks?.[String(today)];
+      const myPhoto = (data.photos || []).find(p => p.uid === social.user.uid && p.day === String(today));
+      todayHtml = `<div class="tour-today">${checked
+        ? `<span class="ok">${t('tour.checkedToday')}</span> ${myPhoto ? `<span class="small">${t('tour.photoAdded')}</span>`
+          : photoUploading === tr.id ? `<span class="small">${t('tour.photoUploading')}</span>`
+          : `<button class="btn small-btn" data-action="tour-photo" data-id="${tr.id}">${t('tour.addPhoto')}</button>`}`
+        : `<span class="small">${t('tour.markToday', { habit: e(tr.habit) })}</span>`}
+        <div class="small">${t('tour.onlyToday')}</div></div>`;
+    }
+    const photosCount = data?.photos?.length || 0;
     html += `<div class="card tour${joined ? ' joined' : ''}">
       <div class="row-between"><div class="ch-title">${e(tr.title)}</div><span class="tag">${status}</span></div>
       <div class="tour-habit">${e(tr.habit)} · ${t('ch.inRow', { n: tr.days, days: pw(tr.days, 'day') })}</div>
       <div class="small">${shortDate(tr.startDay)} — ${shortDate(end)} · ${e(tr.text)}</div>
       <div class="small">${t('tour.participants', { n: data && !data.loading && !data.error ? data.total : '…' })}</div>
-      ${mineHtml}
+      ${mineHtml}${todayHtml}
       <div class="row tour-actions">
         ${joined
           ? `<span class="small">${t('tour.joined')}</span>${st === 'upcoming' ? `<button class="link-btn" data-action="tour-leave" data-id="${tr.id}">${t('tour.leave')}</button>` : ''}`
           : canJoin(tr, today) ? `<button class="btn primary small-btn" data-action="tour-join" data-id="${tr.id}">${t('tour.join')}</button>`
           : st !== 'finished' ? `<span class="small">${t('tour.closed')}</span>` : ''}
         <button class="link-btn" data-action="tour-board" data-id="${tr.id}">${tourOpen === tr.id ? t('tour.hideBoard') : t('tour.board')}</button>
+        ${st !== 'upcoming' ? `<button class="link-btn" data-action="tour-feed" data-id="${tr.id}">${feedOpen === tr.id ? t('tour.hideFeed') : t('tour.feed', { n: photosCount })}</button>` : ''}
       </div>
       ${tourOpen === tr.id ? leaderboardHtml(tr, data) : ''}
+      ${feedOpen === tr.id ? feedHtml(tr, data) : ''}
     </div>`;
   }
   return html + flashHtml('tour');
@@ -781,9 +798,43 @@ function leaderboardHtml(tr, data) {
   if (data.error) return `<p class="small">${t('tour.boardError')}</p>`;
   if (!data.top.length) return `<p class="small">${t('tour.boardEmpty')}</p>`;
   const me = social.user.uid;
-  return `<ol class="board">${data.top.map(p => `<li class="${p.uid === me ? 'me' : ''}"><span>@${e(p.nickname)}</span>
+  return `<ol class="board">${data.top.map(p => `<li class="${p.uid === me ? 'me' : ''}"><span>@${e(p.nickname)}${p.photos ? ` <span class="photos-badge">${t('tour.photosBadge', { n: p.photos })}</span>` : ''}</span>
     <span>${p.count} / ${tr.days}${p.count >= tr.days ? ' 🏆' : ''}</span></li>`).join('')}</ol>
     ${data.myPlace && data.myPlace > 10 ? `<p class="small">${t('tour.yourPlace', { p: data.myPlace, n: data.total })}</p>` : ''}`;
+}
+
+// Лента фото-подтверждений турнира
+function feedHtml(tr, data) {
+  if (!data || data.loading) return `<p class="small">${t('common.loading')}</p>`;
+  if (!data.photos?.length) return `<p class="small">${t('tour.feedEmpty')}</p>`;
+  const me = social.user.uid;
+  const iAmIn = social.joined.includes(tr.id);
+  return `<div class="feed">${data.photos.map(p => {
+    const flags = (p.flags || []).length;
+    const rejected = flags >= FLAG_LIMIT;
+    const mineFlag = (p.flags || []).includes(me);
+    return `<figure class="photo${rejected ? ' rejected' : ''}">
+      <img src="${p.image}" alt="" loading="lazy">
+      <figcaption><b>@${e(p.nickname)}</b> · ${shortDate(Number(p.day))}${flags ? ` · ${t('tour.flags', { n: flags })}` : ''}
+        ${rejected ? `<span class="rej">${t('tour.rejected')}</span>`
+          : p.uid !== me && iAmIn ? (mineFlag ? `<span class="small">${t('tour.flagged')}</span>` : `<button class="link-btn" data-action="tour-flag" data-id="${tr.id}" data-photo="${p.id}">${t('tour.flag')}</button>`) : ''}
+      </figcaption></figure>`;
+  }).join('')}</div>`;
+}
+
+// Сжимаем фото до ~720 px и JPEG — чтобы хранить прямо в базе.
+async function compressImage(file, max = 720) {
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = rej; i.src = url; });
+    const scale = Math.min(1, max / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.round(img.width * scale); c.height = Math.round(img.height * scale);
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    let data = c.toDataURL('image/jpeg', 0.6);
+    if (data.length > 300000) data = c.toDataURL('image/jpeg', 0.4);
+    return data;
+  } finally { URL.revokeObjectURL(url); }
 }
 
 // ---------- Подбор соперников ----------
@@ -926,6 +977,7 @@ async function run(key, fn) {
 }
 
 function goTab(name) {
+  if (name === 'challenges') for (const k of Object.keys(tourData)) if (!tourData[k].loading) delete tourData[k]; // свежие таблицы турниров
   tab = name;
   try { localStorage.setItem(TAB_KEY, tab); } catch (err) {}
   render(); window.scrollTo(0, 0);
@@ -1009,6 +1061,20 @@ document.addEventListener('click', ev => {
       render();
       break;
     }
+    case 'tour-feed': {
+      feedOpen = feedOpen === id ? null : id;
+      const tr = tournamentsAround(todayNumber()).find(x => x.id === id);
+      if (feedOpen && tr) loadTour(tr);
+      render();
+      break;
+    }
+    case 'tour-photo': photoFor = id; $('photoInput').value = ''; $('photoInput').click(); break;
+    case 'tour-flag': {
+      const tr = tournamentsAround(todayNumber()).find(x => x.id === id);
+      const photo = tourData[id]?.photos?.find(p => p.id === el.dataset.photo);
+      if (tr && photo && confirm(t('tour.flagConfirm', { n: FLAG_LIMIT }))) run('tour', async () => { await cloud.flagPhoto(tr, photo); loadTour(tr); });
+      break;
+    }
     case 'suggest-more': suggestions = null; sentTo = {}; render(); break;
     case 'suggest-challenge': {
       const p = suggestions?.find(x => x.uid === el.dataset.uid);
@@ -1042,6 +1108,21 @@ document.addEventListener('click', ev => {
 });
 
 document.addEventListener('change', ev => {
+  if (ev.target.id === 'photoInput') {
+    const file = ev.target.files?.[0];
+    const tr = tournamentsAround(todayNumber()).find(x => x.id === photoFor);
+    if (!file || !tr) return;
+    photoUploading = tr.id; render();
+    run('tour', async () => {
+      try {
+        await cloud.addTournamentPhoto(tr, await compressImage(file));
+        feedOpen = tr.id;
+        loadTour(tr);
+        return t('tour.photoSaved');
+      } finally { photoUploading = null; }
+    });
+    return;
+  }
   if (ev.target.name === 'habit' && ev.target.form?.dataset.form === 'challenge') {
     challengeHabit = ev.target.value;
     ev.target.form.querySelector('.new-habit').hidden = ev.target.value !== '__new';
@@ -1141,6 +1222,8 @@ render();
 
 cloud.initCloud({
   onChange: render,
+  // отметка в турнире записана — обновляем таблицу
+  onTournament: id => { const tr = tournamentsAround(todayNumber()).find(x => x.id === id); if (tr) loadTour(tr); },
   getState: () => state,
   setState: s => {
     state = s;

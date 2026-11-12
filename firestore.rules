@@ -95,15 +95,59 @@ service cloud.firestore {
       allow delete: if signedIn() && (resource.data.from == me() || resource.data.to == me());
     }
 
-    // Турниры: участники и их прогресс. Сами турниры описаны в js/tournaments.js.
-    match /tournaments/{tid}/participants/{uid} {
-      allow read: if signedIn();
-      allow create, update: if signedIn() && uid == me()
-        && request.resource.data.keys().hasOnly(['nickname', 'count', 'completed', 'failed', 'joinedAt', 'updatedAt'])
+    // Турниры: участники и их отметки. Сами турниры описаны в js/tournaments.js.
+    // checks — { 'номер дня': время сервера }. Отметку можно поставить или снять только за сегодня
+    // (±1 день на часовые пояса) и только с временем сервера — задним числом не отметить.
+    function dayNow() { return int(request.time.toMillis() / 86400000); }
+    function todayKeys() { return [string(dayNow() - 1), string(dayNow()), string(dayNow() + 1)]; }
+    function stampOk(after, added, k) { return !(k in added) || after[k] == request.time; }
+    function checksOk() {
+      let before = resource.data.get('checks', {});
+      let after = request.resource.data.get('checks', {});
+      let d = after.diff(before);
+      return d.changedKeys().size() == 0
+        && d.addedKeys().union(d.removedKeys()).hasOnly(todayKeys())
+        && stampOk(after, d.addedKeys(), string(dayNow() - 1))
+        && stampOk(after, d.addedKeys(), string(dayNow()))
+        && stampOk(after, d.addedKeys(), string(dayNow() + 1));
+    }
+    function participantFieldsOk() {
+      return request.resource.data.keys().hasOnly(['nickname', 'count', 'completed', 'failed', 'checks', 'joinedAt', 'updatedAt'])
         && request.resource.data.nickname is string
         && request.resource.data.count is int
-        && request.resource.data.count >= 0 && request.resource.data.count <= 366;
+        && request.resource.data.count >= 0
+        && request.resource.data.count <= request.resource.data.get('checks', {}).size();
+    }
+    match /tournaments/{tid}/participants/{uid} {
+      allow read: if signedIn();
+      allow create: if signedIn() && uid == me() && participantFieldsOk()
+        && request.resource.data.get('checks', {}).size() == 0;
+      allow update: if signedIn() && uid == me() && participantFieldsOk() && checksOk();
       allow delete: if signedIn() && uid == me();
+    }
+
+    // Фото-подтверждения турнира: photos/{uid}_{номер дня}. Добавить можно только за сегодня.
+    // Другие участники могут один раз отметить фото как неправдоподобное (flags).
+    match /tournaments/{tid}/photos/{pid} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && request.resource.data.keys().hasOnly(['uid', 'nickname', 'day', 'image', 'createdAt', 'flags'])
+        && request.resource.data.uid == me()
+        && pid == me() + '_' + request.resource.data.day
+        && request.resource.data.day in todayKeys()
+        && request.resource.data.image is string
+        && request.resource.data.image.size() < 400000
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.flags == []
+        && exists(/databases/$(db)/documents/tournaments/$(tid)/participants/$(me()));
+      allow update: if signedIn() && me() != resource.data.uid
+        && exists(/databases/$(db)/documents/tournaments/$(tid)/participants/$(me()))
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['flags'])
+        && request.resource.data.flags.size() == resource.data.flags.size() + 1
+        && request.resource.data.flags.hasAll(resource.data.flags)
+        && me() in request.resource.data.flags
+        && !(me() in resource.data.flags);
+      allow delete: if signedIn() && resource.data.uid == me();
     }
 
     // Вызовы между двумя людьми: другом, человеком из поиска или по ссылке-приглашению.

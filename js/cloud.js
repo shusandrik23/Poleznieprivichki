@@ -3,7 +3,7 @@ import { firebaseConfig, appleSignInEnabled } from '../firebase-config.js';
 import { streaks, challengeProgress, todayNumber, dateKey } from './core.js';
 import { keyOf, keyOfName, normKey } from './catalog.js';
 import * as I from './i18n.js';
-import { tournamentById } from './tournaments.js';
+import { tournamentById, tourProgress, FLAG_LIMIT } from './tournaments.js';
 import { isNative, hasNativeGoogle, nativeGoogleIdToken, nativeSignOut, appUrl } from './native.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/10.14.1';
@@ -421,26 +421,29 @@ export async function suggestOpponents(count = 5) {
 }
 
 // ---------- Турниры ----------
+// Отметки турнира хранятся на сервере: checks[номер дня] = время сервера. Задним числом не отметить —
+// правила принимают отметку только за «сегодня» (±1 день на часовые пояса) и только с временем сервера.
 
 const lastTournamentWrite = {};
 
-function tournamentProgress(t) {
+function myDoneToday(t) {
   const habit = hooks.getState().habits.find(h => keyOf(h) === t.habitKey);
-  return challengeProgress(habit, t.startDay, t.days, todayNumber());
+  return !!habit?.done[dateKey(new Date())];
 }
 
 export async function joinTournament(t, ensureHabit) {
   const uid = social.user.uid;
   ensureHabit(t.habit);
-  const p = tournamentProgress(t);
   const batch = fb.writeBatch(db);
   batch.set(fb.doc(db, 'tournaments', t.id, 'participants', uid), {
-    nickname: social.profile.nickname, ...p, joinedAt: fb.serverTimestamp(), updatedAt: fb.serverTimestamp(),
+    nickname: social.profile.nickname, count: 0, completed: false, failed: false, checks: {},
+    joinedAt: fb.serverTimestamp(), updatedAt: fb.serverTimestamp(),
   });
   batch.set(fb.doc(db, 'users', uid), { tournaments: fb.arrayUnion(t.id) }, { merge: true });
   await batch.commit();
   social.joined = [...new Set([...social.joined, t.id])];
-  lastTournamentWrite[t.id] = JSON.stringify(p);
+  delete lastTournamentWrite[t.id];
+  await syncTournaments();   // если сегодня уже отмечено — сразу засчитываем
 }
 
 export async function leaveTournament(t) {
@@ -452,39 +455,72 @@ export async function leaveTournament(t) {
   social.joined = social.joined.filter(x => x !== t.id);
 }
 
-// Таблица лидеров: первые 10, моё место и сколько всего участников.
+// Таблица лидеров считается по отметкам на сервере; дни с фото, которые участники сочли
+// неправдоподобными (FLAG_LIMIT отметок), не засчитываются.
 export async function loadLeaderboard(t) {
-  const col = fb.collection(db, 'tournaments', t.id, 'participants');
-  const [topSnap, countSnap] = await Promise.all([
-    fb.getDocs(fb.query(col, fb.orderBy('count', 'desc'), fb.limit(10))),
-    fb.getCountFromServer(col),
+  const me = social.user?.uid;
+  const [ps, phs] = await Promise.all([
+    fb.getDocs(fb.query(fb.collection(db, 'tournaments', t.id, 'participants'), fb.limit(300))),
+    fb.getDocs(fb.query(fb.collection(db, 'tournaments', t.id, 'photos'), fb.orderBy('createdAt', 'desc'), fb.limit(200))),
   ]);
-  const top = topSnap.docs.map(d => ({ uid: d.id, ...d.data() }));
-  let myPlace = null;
-  if (social.joined.includes(t.id)) {
-    const mine = tournamentProgress(t);
-    const ahead = await fb.getCountFromServer(fb.query(col, fb.where('count', '>', mine.count)));
-    myPlace = ahead.data().count + 1;
+  const photos = phs.docs.map(d => ({ id: d.id, ...d.data() }));
+  const rejected = {}, photoCount = {};
+  for (const p of photos) {
+    if ((p.flags || []).length >= FLAG_LIMIT) (rejected[p.uid] ||= new Set()).add(p.day);
+    else photoCount[p.uid] = (photoCount[p.uid] || 0) + 1;
   }
-  return { top, total: countSnap.data().count, myPlace };
+  const today = todayNumber();
+  const rows = ps.docs.map(d => {
+    const data = d.data();
+    return { uid: d.id, nickname: data.nickname, checks: data.checks || {}, photos: photoCount[d.id] || 0,
+      ...tourProgress(data.checks || {}, t, today, rejected[d.id]) };
+  }).sort((a, b) => b.count - a.count || b.photos - a.photos || a.nickname.localeCompare(b.nickname));
+  const idx = rows.findIndex(r => r.uid === me);
+  return { rows, top: rows.slice(0, 10), total: rows.length, myPlace: idx >= 0 ? idx + 1 : null, me: rows[idx] || null, photos };
 }
 
+// Сегодняшняя отметка привычки → отметка в турнире (или снятие отметки).
 async function syncTournaments() {
   if (!social.user || !social.profile) return;
   const uid = social.user.uid;
   const today = todayNumber();
   for (const id of social.joined) {
     const t = tournamentById(id);
-    if (!t || today > t.startDay + t.days + 1) continue; // турнир давно закончился
-    const p = tournamentProgress(t);
-    const key = JSON.stringify(p);
+    if (!t || today < t.startDay || today >= t.startDay + t.days) continue; // турнир не идёт
+    const done = myDoneToday(t);
+    const key = today + ':' + done;
     if (lastTournamentWrite[id] === key) continue;
     try {
-      await fb.setDoc(fb.doc(db, 'tournaments', id, 'participants', uid),
-        { nickname: social.profile.nickname, ...p, updatedAt: fb.serverTimestamp() }, { merge: true });
+      const ref = fb.doc(db, 'tournaments', id, 'participants', uid);
+      const snap = await fb.getDoc(ref);
+      if (!snap.exists()) continue;
+      const checks = { ...(snap.data().checks || {}) };
+      const has = !!checks[String(today)];
+      if (has !== done) {
+        if (done) checks[String(today)] = true; else delete checks[String(today)];
+        const p = tourProgress(checks, t, today);
+        await fb.updateDoc(ref, {
+          [`checks.${today}`]: done ? fb.serverTimestamp() : fb.deleteField(),
+          count: p.count, completed: p.completed, failed: p.failed, updatedAt: fb.serverTimestamp(),
+        });
+        hooks.onTournament?.(id);
+      }
       lastTournamentWrite[id] = key;
     } catch (e) { console.error('tournament sync failed', e); }
   }
+}
+
+// Фото-подтверждение за сегодня (сжатое изображение, data URL).
+export async function addTournamentPhoto(t, image) {
+  const uid = social.user.uid;
+  const day = String(todayNumber());
+  await fb.setDoc(fb.doc(db, 'tournaments', t.id, 'photos', `${uid}_${day}`), {
+    uid, nickname: social.profile.nickname, day, image, createdAt: fb.serverTimestamp(), flags: [],
+  });
+}
+
+export async function flagPhoto(t, photo) {
+  await fb.updateDoc(fb.doc(db, 'tournaments', t.id, 'photos', photo.id), { flags: fb.arrayUnion(social.user.uid) });
 }
 
 // ---------- Вызовы ----------
@@ -581,6 +617,12 @@ export async function deleteAccount() {
   for (const c of social.challenges) batch.delete(fb.doc(db, 'challenges', c.id));
   for (const d of myInvites.docs) batch.delete(d.ref);
   for (const id of social.joined) batch.delete(fb.doc(db, 'tournaments', id, 'participants', uid));
+  for (const id of social.joined) {
+    try {
+      const mine = await fb.getDocs(fb.query(fb.collection(db, 'tournaments', id, 'photos'), fb.where('uid', '==', uid)));
+      for (const d of mine.docs) batch.delete(d.ref);
+    } catch (e) {}
+  }
   if (social.profile) batch.delete(fb.doc(db, 'usernames', social.profile.nickname));
   for (const col of ['profiles', 'stats', 'discover', 'users', 'referrals']) batch.delete(fb.doc(db, col, uid));
   stopListeners();
