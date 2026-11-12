@@ -150,7 +150,7 @@
   .row-between { display: flex; justify-content: space-between; align-items: center; gap: 8px; flex-wrap: wrap; }
   .stack { display: grid; gap: 10px; }
   .stack label { display: grid; gap: 4px; font-size: 14px; color: var(--muted); }
-  .card input:not([type=number]), .card select {
+  .card input:not([type=number]):not([type=checkbox]), .card select {
     padding: 10px 12px; font: inherit; color: var(--text); background: var(--bg);
     border: 1px solid var(--line); border-radius: 10px; width: 100%;
   }
@@ -179,6 +179,20 @@
   .prow.win .fill { background: #e0a526; }
   .prow.out .fill { background: var(--muted); }
   .result { font-weight: 600; margin: 10px 0 4px !important; }
+
+  .fact { margin-top: 16px; background: var(--accent-soft); border-color: transparent; }
+  .fact-head { display: flex; justify-content: space-between; align-items: center; font-weight: 700; }
+  .fact p { margin: 8px 0 10px; }
+  .person { padding: 10px 0; border-top: 1px solid var(--line); margin-top: 10px; }
+  .person .small { margin-top: 4px; }
+  .check-row { display: flex !important; gap: 10px; align-items: flex-start; color: var(--text) !important; font-size: 15px !important; cursor: pointer; }
+  .check-row input { width: 20px; height: 20px; margin: 1px 0 0; accent-color: var(--accent); flex: none; }
+  .indent { margin-left: 30px; }
+  .or { font-size: 13px; color: var(--muted); text-align: center; margin-top: 4px; }
+  .btn.whatsapp { background: #25d366; border-color: #25d366; color: #fff; }
+  .invite-banner { border: 2px solid var(--accent); margin-top: 16px; }
+  .invite-note { margin: 16px 0 8px; }
+  [hidden] { display: none !important; }
 </style>
 </head>
 <body>
@@ -188,6 +202,8 @@
     <p class="tagline">Каждый день отмечайте, что сделали, и следите за сериями дней подряд</p>
     <div class="date" id="today"></div>
   </header>
+
+  <div id="inviteBanner" hidden></div>
 
   <nav class="tabs">
     <button data-tab="habits">Мои привычки<span class="badge"></span></button>
@@ -212,6 +228,7 @@
     </details>
 
     <ul class="habits" id="list"></ul>
+    <div class="card fact" id="fact"></div>
     <p class="hint" id="hint">Нажмите на кружок, чтобы отметить привычку за сегодня. Дни недели внизу карточки — чтобы исправить прошлые отметки. 🎯 — поставить цель.</p>
   </section>
 

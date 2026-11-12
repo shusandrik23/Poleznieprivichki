@@ -19,19 +19,32 @@ service cloud.firestore {
       allow delete: if signedIn() && resource.data.uid == me();
     }
 
-    // Публичный профиль: только ник и имя. Виден всем вошедшим (нужно для поиска друзей).
+    // Публичный профиль: только ник. Виден всем вошедшим (нужно для поиска друзей).
     match /profiles/{uid} {
       allow read: if signedIn();
       allow create, update: if signedIn() && uid == me()
-        && request.resource.data.keys().hasOnly(['nickname', 'name'])
+        && request.resource.data.keys().hasOnly(['nickname'])
         && request.resource.data.nickname is string
-        && getAfter(/databases/$(db)/documents/usernames/$(request.resource.data.nickname)).data.uid == me()
-        && request.resource.data.name is string
-        && request.resource.data.name.size() <= 40;
+        && getAfter(/databases/$(db)/documents/usernames/$(request.resource.data.nickname)).data.uid == me();
       allow delete: if signedIn() && uid == me();
     }
 
-    // Серии по привычкам. Видны только самому пользователю и его друзьям.
+    // Поиск единомышленников: ник и серии тех, кто сам включил «показывать меня».
+    match /discover/{uid} {
+      allow read: if signedIn();
+      allow write: if signedIn() && uid == me();
+    }
+
+    // Приглашения по ссылке (WhatsApp и т. п.). Код знает только тот, кому отправили ссылку.
+    match /invites/{code} {
+      allow read: if signedIn();
+      allow create: if signedIn()
+        && code.size() >= 12
+        && request.resource.data.from == me();
+      allow delete: if signedIn() && resource.data.from == me();
+    }
+
+    // Серии по привычкам и настоящее имя (если разрешено). Видны только самому пользователю и его друзьям.
     match /stats/{uid} {
       allow read: if signedIn() && (uid == me() || isFriend(uid, me()));
       allow write: if signedIn() && uid == me();
@@ -41,13 +54,20 @@ service cloud.firestore {
     match /users/{uid} {
       allow read, write: if signedIn() && uid == me();
 
-      // Друзья. Запись появляется у обоих, когда получатель принимает заявку.
+      // Друзья. Запись появляется у обоих, когда получатель принимает заявку
+      // или открывает ссылку-приглашение.
       match /friends/{other} {
         allow read: if signedIn() && uid == me();
         allow create: if signedIn() && (
           (me() == uid && exists(/databases/$(db)/documents/friendRequests/$(other + '_' + uid)))
           || (me() == other && exists(/databases/$(db)/documents/friendRequests/$(uid + '_' + other)))
+          || ('invite' in request.resource.data && (
+            (me() == uid && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.from == other)
+            || (me() == other && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.from == uid)))
         );
+        // друг может обновить в вашем списке только свой ник
+        allow update: if signedIn() && me() == other
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['nickname']);
         allow delete: if signedIn() && (me() == uid || me() == other);
       }
     }
@@ -63,16 +83,26 @@ service cloud.firestore {
       allow delete: if signedIn() && (resource.data.from == me() || resource.data.to == me());
     }
 
-    // Вызовы между двумя друзьями.
+    // Вызовы между двумя людьми: другом, человеком из поиска или по ссылке-приглашению.
     match /challenges/{id} {
       allow read: if signedIn() && me() in resource.data.participants;
       allow create: if signedIn()
         && request.resource.data.participants.size() == 2
-        && request.resource.data.participants[0] == me()
-        && request.resource.data.status == 'pending'
         && request.resource.data.days is int
         && request.resource.data.days >= 1 && request.resource.data.days <= 365
-        && isFriend(me(), request.resource.data.participants[1]);
+        && (
+          (request.resource.data.participants[0] == me()
+            && request.resource.data.status == 'pending'
+            && (isFriend(me(), request.resource.data.participants[1])
+              || exists(/databases/$(db)/documents/discover/$(request.resource.data.participants[1]))))
+          // приглашённый по ссылке сразу начинает вызов, который ему предложили
+          || ('invite' in request.resource.data
+            && request.resource.data.participants[1] == me()
+            && request.resource.data.status == 'active'
+            && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.from == request.resource.data.participants[0]
+            && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.habitKey == request.resource.data.habitKey
+            && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.days == request.resource.data.days)
+        );
       allow update: if signedIn() && me() in resource.data.participants
         && request.resource.data.participants == resource.data.participants
         && request.resource.data.days == resource.data.days

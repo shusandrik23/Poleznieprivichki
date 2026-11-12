@@ -1,4 +1,4 @@
-// Облачная часть: вход, синхронизация привычек, друзья и вызовы (Firebase).
+// Облачная часть: вход, синхронизация привычек, друзья, поиск по привычкам, приглашения и вызовы (Firebase).
 import { firebaseConfig, appleSignInEnabled } from '../firebase-config.js';
 import { streaks, habitKey, challengeProgress, todayNumber, dateKey } from './core.js';
 
@@ -13,15 +13,18 @@ const config = useEmulator
 export const cloudAvailable = !!config;
 export const appleAvailable = appleSignInEnabled && !useEmulator;
 
+const DEFAULT_SETTINGS = { showName: false, realName: '', discoverable: false };
+
 // Состояние, которое показывает интерфейс.
 export const social = {
   ready: false,        // Firebase загрузился
-  user: null,          // { uid, email }
-  profile: undefined,  // undefined — загружается, null — ника ещё нет
+  user: null,          // { uid, email, displayName }
+  profile: undefined,  // { nickname } · undefined — загружается, null — ника ещё нет
+  settings: { ...DEFAULT_SETTINGS },
   incoming: [],        // входящие заявки в друзья
   outgoing: [],        // исходящие заявки
-  friends: [],         // [{ uid, nickname, name }]
-  friendStats: {},     // uid → { habits: [{ key, name, cur, end, best, goal }] }
+  friends: [],         // [{ uid, nickname }]
+  friendStats: {},     // uid → { habits: [{ key, name, cur, end, best, goal }], realName }
   challenges: [],
   error: null,
 };
@@ -53,9 +56,10 @@ export async function initCloud(h) {
     if (useEmulator) {
       fb.connectAuthEmulator(auth, 'http://127.0.0.1:9099', { disableWarnings: true });
       fb.connectFirestoreEmulator(db, '127.0.0.1', 8080);
+      window.__fb = { fb, db };
       // Вход тестовым пользователем (только для проверки на эмуляторе).
-      window.__testSignIn = (sub, email) =>
-        fb.signInWithCredential(auth, fb.GoogleAuthProvider.credential(JSON.stringify({ sub, email, email_verified: true })));
+      window.__testSignIn = (sub, email, name) =>
+        fb.signInWithCredential(auth, fb.GoogleAuthProvider.credential(JSON.stringify({ sub, email, name, email_verified: true })));
     }
     social.ready = true;
     fb.onAuthStateChanged(auth, onUser);
@@ -102,15 +106,20 @@ function stopListeners() {
 async function onUser(user) {
   stopListeners();
   remoteLoaded = false;
-  Object.assign(social, { user: user ? { uid: user.uid, email: user.email } : null, profile: user ? undefined : null,
-    incoming: [], outgoing: [], friends: [], friendStats: {}, challenges: [] });
+  Object.assign(social, {
+    user: user ? { uid: user.uid, email: user.email, displayName: user.displayName || '' } : null,
+    profile: user ? undefined : null, settings: { ...DEFAULT_SETTINGS },
+    incoming: [], outgoing: [], friends: [], friendStats: {}, challenges: [],
+  });
   changed();
   if (!user) return;
   const uid = user.uid;
 
   unsubs.push(fb.onSnapshot(fb.doc(db, 'profiles', uid), snap => {
+    const had = social.profile;
     social.profile = snap.exists() ? snap.data() : null;
     changed();
+    if (!had && social.profile && remoteLoaded) scheduleSync(); // ник появился — обновим поиск
   }));
 
   // Личные привычки: при входе объединяем с тем, что уже есть на устройстве.
@@ -118,16 +127,21 @@ async function onUser(user) {
   const first = await fb.getDoc(userRef);
   const local = hooks.getState();
   const merged = first.exists() ? mergeStates(first.data(), local) : local;
+  social.settings = { ...DEFAULT_SETTINGS, realName: social.user.displayName, ...(first.data()?.settings || {}) };
   hooks.setState(merged);
   remoteLoaded = true;
+  if (!first.data()?.settings) await fb.setDoc(userRef, { settings: social.settings }, { merge: true });
   await pushNow();
 
   unsubs.push(fb.onSnapshot(userRef, snap => {
     if (snap.metadata.hasPendingWrites || !snap.exists()) return;
     const data = snap.data();
-    if (data.client === clientId) return;
-    hooks.setState({ habits: data.habits || [] });  // изменения с другого устройства
-    syncChallenges();
+    social.settings = { ...DEFAULT_SETTINGS, ...(data.settings || {}) };
+    if (data.client !== clientId && data.habits) {
+      hooks.setState({ habits: data.habits });  // изменения с другого устройства
+      syncChallenges();
+    }
+    changed();
   }));
 
   unsubs.push(fb.onSnapshot(fb.query(fb.collection(db, 'friendRequests'), fb.where('to', '==', uid)), snap => {
@@ -140,7 +154,7 @@ async function onUser(user) {
   }));
   unsubs.push(fb.onSnapshot(fb.collection(db, 'users', uid, 'friends'), snap => {
     social.friends = snap.docs.map(d => ({ uid: d.id, ...d.data() }))
-      .sort((a, b) => (a.name || a.nickname).localeCompare(b.name || b.nickname));
+      .sort((a, b) => a.nickname.localeCompare(b.nickname));
     watchFriendStats();
     changed();
   }));
@@ -195,19 +209,36 @@ export function scheduleSync() {
   pushTimer = setTimeout(pushNow, 600);
 }
 
+function statsList(state) {
+  const today = dateKey(new Date());
+  return state.habits.map(h => {
+    const s = streaks(h, today);
+    return { key: habitKey(h.name), name: h.name, cur: s.current, end: s.end, best: s.best, goal: h.goal || null };
+  });
+}
+
 async function pushNow() {
   if (!social.user) return;
   const uid = social.user.uid;
   const state = hooks.getState();
-  const today = dateKey(new Date());
-  const stats = state.habits.map(h => {
-    const s = streaks(h, today);
-    return { key: habitKey(h.name), name: h.name, cur: s.current, end: s.end, best: s.best, goal: h.goal || null };
-  });
+  const stats = statsList(state);
+  const { showName, realName, discoverable } = social.settings;
   try {
     const batch = fb.writeBatch(db);
-    batch.set(fb.doc(db, 'users', uid), { habits: state.habits, client: clientId, updatedAt: fb.serverTimestamp() });
-    batch.set(fb.doc(db, 'stats', uid), { habits: stats, updatedAt: fb.serverTimestamp() });
+    batch.set(fb.doc(db, 'users', uid), { habits: state.habits, client: clientId, updatedAt: fb.serverTimestamp() }, { merge: true });
+    // Друзья видят серии и (если разрешено) настоящее имя.
+    batch.set(fb.doc(db, 'stats', uid), { habits: stats, realName: showName ? realName : '', updatedAt: fb.serverTimestamp() });
+    // Поиск единомышленников: только ник и серии, и только если человек согласился.
+    if (discoverable && social.profile) {
+      batch.set(fb.doc(db, 'discover', uid), {
+        nickname: social.profile.nickname,
+        keys: [...new Set(stats.map(s => s.key))].slice(0, 50),
+        habits: stats.map(({ key, name, cur, end, best }) => ({ key, name, cur, end, best })),
+        updatedAt: fb.serverTimestamp(),
+      });
+    } else {
+      batch.delete(fb.doc(db, 'discover', uid));
+    }
     await batch.commit();
     await syncChallenges();
   } catch (e) {
@@ -233,23 +264,34 @@ async function syncChallenges() {
   }
 }
 
-// ---------- Профиль ----------
+// ---------- Профиль и настройки ----------
 
 export const NICK_RE = /^[a-z0-9_]{3,20}$/;
 
-export async function claimNickname(nickname, name) {
+export async function claimNickname(nickname) {
   const uid = social.user.uid;
   nickname = nickname.trim().toLowerCase().replace(/^@/, '');
-  name = (name || '').trim().slice(0, 40);
   if (!NICK_RE.test(nickname)) throw new Error('Ник: 3–20 символов, латинские буквы, цифры и «_».');
+  if (social.profile?.nickname === nickname) return;
   const ref = fb.doc(db, 'usernames', nickname);
   const taken = await fb.getDoc(ref);
   if (taken.exists() && taken.data().uid !== uid) throw new Error(`Ник @${nickname} уже занят, выберите другой.`);
   const batch = fb.writeBatch(db);
-  if (social.profile && social.profile.nickname !== nickname) batch.delete(fb.doc(db, 'usernames', social.profile.nickname));
+  if (social.profile) batch.delete(fb.doc(db, 'usernames', social.profile.nickname));
   if (!taken.exists()) batch.set(ref, { uid });
-  batch.set(fb.doc(db, 'profiles', uid), { nickname, name });
+  batch.set(fb.doc(db, 'profiles', uid), { nickname });
+  // у друзей обновляем ник в их списке
+  for (const f of social.friends) batch.update(fb.doc(db, 'users', f.uid, 'friends', uid), { nickname });
   await batch.commit();
+  social.profile = { nickname };
+  await pushNow();
+}
+
+export async function saveSettings(patch) {
+  social.settings = { ...social.settings, ...patch };
+  social.settings.realName = (social.settings.realName || '').trim().slice(0, 40);
+  await fb.setDoc(fb.doc(db, 'users', social.user.uid), { settings: social.settings }, { merge: true });
+  await pushNow();
 }
 
 // ---------- Друзья ----------
@@ -261,16 +303,17 @@ export async function sendFriendRequest(nickname) {
   if (nickname === social.profile.nickname) throw new Error('Это ваш собственный ник 🙂');
   const u = await fb.getDoc(fb.doc(db, 'usernames', nickname));
   if (!u.exists()) throw new Error(`Пользователь @${nickname} не найден.`);
-  const to = u.data().uid;
-  if (social.friends.some(f => f.uid === to)) throw new Error(`@${nickname} уже у вас в друзьях.`);
+  return sendFriendRequestTo({ uid: u.data().uid, nickname });
+}
+
+export async function sendFriendRequestTo(person) {
+  const me = social.user.uid;
+  const to = person.uid;
+  if (social.friends.some(f => f.uid === to)) throw new Error(`@${person.nickname} уже у вас в друзьях.`);
   const reverse = social.incoming.find(r => r.from === to);
   if (reverse) { await respondFriendRequest(reverse, true); return 'accepted'; }
-  const profile = (await fb.getDoc(fb.doc(db, 'profiles', to))).data();
   await fb.setDoc(fb.doc(db, 'friendRequests', `${me}_${to}`), {
-    from: me, to,
-    fromNick: social.profile.nickname, fromName: social.profile.name || '',
-    toNick: profile.nickname, toName: profile.name || '',
-    createdAt: fb.serverTimestamp(),
+    from: me, to, fromNick: social.profile.nickname, toNick: person.nickname, createdAt: fb.serverTimestamp(),
   });
   return 'sent';
 }
@@ -279,8 +322,8 @@ export async function respondFriendRequest(req, accept) {
   const me = social.user.uid;
   const batch = fb.writeBatch(db);
   if (accept) {
-    batch.set(fb.doc(db, 'users', me, 'friends', req.from), { nickname: req.fromNick, name: req.fromName || '', since: fb.serverTimestamp() });
-    batch.set(fb.doc(db, 'users', req.from, 'friends', me), { nickname: social.profile.nickname, name: social.profile.name || '', since: fb.serverTimestamp() });
+    batch.set(fb.doc(db, 'users', me, 'friends', req.from), { nickname: req.fromNick, since: fb.serverTimestamp() });
+    batch.set(fb.doc(db, 'users', req.from, 'friends', me), { nickname: social.profile.nickname, since: fb.serverTimestamp() });
   }
   batch.delete(fb.doc(db, 'friendRequests', req.id));
   await batch.commit();
@@ -298,13 +341,36 @@ export async function removeFriend(uid) {
   await batch.commit();
 }
 
+// ---------- Поиск людей с такими же привычками ----------
+
+export async function findSimilar() {
+  const me = social.user.uid;
+  const mine = statsList(hooks.getState());
+  const keys = [...new Set(mine.map(s => s.key))].slice(0, 10);
+  const people = new Map();
+  await Promise.all(keys.map(async key => {
+    const snap = await fb.getDocs(fb.query(fb.collection(db, 'discover'), fb.where('keys', 'array-contains', key), fb.limit(15)));
+    for (const d of snap.docs) {
+      if (d.id === me) continue;
+      const data = d.data();
+      if (!people.has(d.id)) people.set(d.id, { uid: d.id, nickname: data.nickname, habits: data.habits || [] });
+    }
+  }));
+  const myKeys = new Set(keys);
+  return [...people.values()]
+    .map(p => ({ ...p, common: p.habits.filter(h => myKeys.has(h.key)) }))
+    .sort((a, b) => b.common.length - a.common.length || a.nickname.localeCompare(b.nickname))
+    .slice(0, 30);
+}
+
 // ---------- Вызовы ----------
 
-export async function createChallenge(friend, habitName, days) {
+// target — друг или человек из поиска: { uid, nickname }
+export async function createChallenge(target, habitName, days) {
   const me = social.user.uid;
   await fb.addDoc(fb.collection(db, 'challenges'), {
-    participants: [me, friend.uid],
-    names: { [me]: social.profile.name || '@' + social.profile.nickname, [friend.uid]: friend.name || '@' + friend.nickname },
+    participants: [me, target.uid],
+    names: { [me]: social.profile.nickname, [target.uid]: target.nickname },
     habitName, habitKey: habitKey(habitName), days,
     status: 'pending', startDay: null, progress: {},
     createdAt: fb.serverTimestamp(),
@@ -328,11 +394,60 @@ export async function deleteChallenge(ch) {
   await fb.deleteDoc(fb.doc(db, 'challenges', ch.id));
 }
 
+// ---------- Приглашения по ссылке (WhatsApp и т. п.) ----------
+
+function randomCode() {
+  const a = new Uint8Array(15);
+  crypto.getRandomValues(a);
+  return [...a].map(b => 'abcdefghijkmnpqrstuvwxyz23456789'[b % 32]).join('');
+}
+
+// Возвращает ссылку сразу (чтобы можно было открыть WhatsApp без задержки), а запись идёт в фоне.
+export function createInvite(habitName = null, days = null) {
+  const code = randomCode();
+  const url = `${location.origin}${location.pathname}?invite=${code}`;
+  const saved = fb.setDoc(fb.doc(db, 'invites', code), {
+    from: social.user.uid, nickname: social.profile.nickname,
+    habitName, habitKey: habitName ? habitKey(habitName) : null, days,
+    createdAt: fb.serverTimestamp(),
+  });
+  return { code, url, saved };
+}
+
+export async function getInvite(code) {
+  const snap = await fb.getDoc(fb.doc(db, 'invites', code));
+  return snap.exists() ? { code, ...snap.data() } : null;
+}
+
+export async function acceptInvite(inv, ensureHabit) {
+  const me = social.user.uid;
+  if (inv.from === me) throw new Error('Это ваша собственная ссылка — отправьте её другу.');
+  const batch = fb.writeBatch(db);
+  if (!social.friends.some(f => f.uid === inv.from)) {
+    batch.set(fb.doc(db, 'users', me, 'friends', inv.from), { nickname: inv.nickname, since: fb.serverTimestamp(), invite: inv.code });
+    batch.set(fb.doc(db, 'users', inv.from, 'friends', me), { nickname: social.profile.nickname, since: fb.serverTimestamp(), invite: inv.code });
+  }
+  if (inv.habitName) {
+    ensureHabit(inv.habitName);
+    const today = todayNumber();
+    const habit = hooks.getState().habits.find(h => habitKey(h.name) === inv.habitKey);
+    batch.set(fb.doc(fb.collection(db, 'challenges')), {
+      participants: [inv.from, me],
+      names: { [inv.from]: inv.nickname, [me]: social.profile.nickname },
+      habitName: inv.habitName, habitKey: inv.habitKey, days: inv.days,
+      status: 'active', startDay: today, progress: { [me]: challengeProgress(habit, today, inv.days, today) },
+      invite: inv.code, createdAt: fb.serverTimestamp(),
+    });
+  }
+  await batch.commit();
+}
+
 // ---------- Удаление аккаунта (обязательно для App Store) ----------
 
 export async function deleteAccount() {
   const user = auth.currentUser;
   const uid = user.uid;
+  const myInvites = await fb.getDocs(fb.query(fb.collection(db, 'invites'), fb.where('from', '==', uid)));
   const batch = fb.writeBatch(db);
   for (const f of social.friends) {
     batch.delete(fb.doc(db, 'users', uid, 'friends', f.uid));
@@ -340,10 +455,9 @@ export async function deleteAccount() {
   }
   for (const r of [...social.incoming, ...social.outgoing]) batch.delete(fb.doc(db, 'friendRequests', r.id));
   for (const c of social.challenges) batch.delete(fb.doc(db, 'challenges', c.id));
+  for (const d of myInvites.docs) batch.delete(d.ref);
   if (social.profile) batch.delete(fb.doc(db, 'usernames', social.profile.nickname));
-  batch.delete(fb.doc(db, 'profiles', uid));
-  batch.delete(fb.doc(db, 'stats', uid));
-  batch.delete(fb.doc(db, 'users', uid));
+  for (const col of ['profiles', 'stats', 'discover', 'users']) batch.delete(fb.doc(db, col, uid));
   stopListeners();
   await batch.commit();
   try {

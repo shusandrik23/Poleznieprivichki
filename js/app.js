@@ -1,15 +1,18 @@
 import { dateKey, streaks, liveStreak, habitKey, challengeProgress, todayNumber, plural, escapeHtml as e } from './core.js';
 import * as cloud from './cloud.js';
 import { social } from './cloud.js';
+import { factFor } from './facts.js';
 
 const STORAGE_KEY = 'habit-trainer-v1';
 const TAB_KEY = 'habit-trainer-tab';
+const INVITE_KEY = 'habit-trainer-invite';
 
 const CATALOG = [
   { title: 'Здоровье', items: ['💧 Выпить 2 литра воды', '🏃 Зарядка 10 минут', '🚶 Пройти 8 000 шагов', '😴 Лечь спать до 23:00', '🥗 Съесть овощи или фрукты', '🧘 Растяжка', '🚿 Контрастный душ'] },
+  { title: 'Спорт', items: ['💪 5 отжиманий', '🏋️ 20 приседаний', '⏱️ Планка 1 минута', '🪜 Лестница вместо лифта'] },
   { title: 'Ум и развитие', items: ['📖 Читать 20 минут', '🗣️ Учить иностранный язык 15 минут', '🎧 Послушать подкаст или лекцию', '✍️ Вести дневник', '🧠 Решить задачу или головоломку'] },
   { title: 'Спокойствие', items: ['🧘 Медитация 10 минут', '🙏 Записать 3 вещи, за которые благодарен', '🌳 Прогулка на свежем воздухе', '📵 Час без телефона перед сном'] },
-  { title: 'Продуктивность', items: ['📝 Составить план на день', '🧹 Убрать рабочее место', '⏰ Встать без «ещё 5 минут»', '💰 Записать расходы'] },
+  { title: 'Продуктивность', items: ['📝 Составить план на день', '🧹 Убрать рабочее место', '⏰ Встать без «ещё 5 минут»', '💰 Записать расходы', '💰 Откладывать 100 ₽'] },
   { title: 'Отказ от вредного', items: ['🚭 Не курить', '🍬 Без сладкого', '🍺 Без алкоголя', '📱 Не больше часа соцсетей'] },
   { title: 'Близкие', items: ['📞 Позвонить родным', '💬 Сделать комплимент', '🤝 Помочь кому-нибудь'] },
 ];
@@ -41,7 +44,11 @@ let tab = 'habits';
 try { tab = localStorage.getItem(TAB_KEY) || 'habits'; } catch (err) {}
 let editingGoal = null;     // id привычки с открытым редактором цели
 let renaming = false;       // открыта форма смены ника
-let challengeFriend = '';   // выбранный друг в форме вызова
+let challengeFriend = '';   // выбранный соперник в форме вызова
+let factOffset = 0;         // «ещё факт»
+let similar = null;         // результаты поиска единомышленников
+let similarLoading = false;
+let pendingInvite = null;   // { code, data?, status }
 const flash = {};           // сообщения под формами: { friends: {text, error} }
 
 function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
@@ -92,15 +99,22 @@ function setHTML(el, html) {
   let focus = null;
   for (const f of el.querySelectorAll('form[data-form] [name]')) {
     const k = f.form.dataset.form + (f.form.dataset.id || '') + ':' + f.name;
-    saved[k] = f.value;
+    saved[k] = f.type === 'checkbox' ? f.checked : f.value;
     if (f === document.activeElement) focus = { k, start: f.selectionStart, end: f.selectionEnd };
   }
   el.innerHTML = html;
   for (const f of el.querySelectorAll('form[data-form] [name]')) {
     const k = f.form.dataset.form + (f.form.dataset.id || '') + ':' + f.name;
-    if (k in saved) f.value = saved[k];
+    if (k in saved) { if (f.type === 'checkbox') f.checked = saved[k]; else f.value = saved[k]; }
     if (focus && focus.k === k) { f.focus(); try { f.setSelectionRange(focus.start, focus.end); } catch (err) {} }
   }
+  syncNameField(el);
+}
+
+// Поле «настоящее имя» видно, только когда стоит галочка.
+function syncNameField(root) {
+  const cb = root.querySelector('input[name=showName]');
+  if (cb) cb.form.querySelector('.indent').hidden = !cb.checked;
 }
 function clearForm(form) { for (const f of form.querySelectorAll('input')) f.value = ''; }
 
@@ -115,10 +129,18 @@ function render() {
     b.querySelector('.badge').textContent = badge || '';
   }
   for (const v of document.querySelectorAll('.view')) v.hidden = v.id !== 'view-' + tab;
+  renderInviteBanner();
 
   if (tab === 'habits') renderHabits();
   if (tab === 'friends') renderFriends();
   if (tab === 'challenges') renderChallenges();
+}
+
+// Как показывать друга: настоящее имя, если он разрешил, иначе ник.
+function friendLabel(f) { return social.friendStats[f.uid]?.realName || '@' + f.nickname; }
+function friendHtml(f) {
+  const real = social.friendStats[f.uid]?.realName;
+  return real ? `${e(real)} <span class="nick">@${e(f.nickname)}</span>` : `@${e(f.nickname)}`;
 }
 
 // Серии друзей по такой же привычке.
@@ -128,7 +150,7 @@ function friendsOnHabit(h) {
   const out = [];
   for (const f of social.friends) {
     const st = social.friendStats[f.uid]?.habits?.find(x => x.key === key);
-    if (st) out.push({ name: f.name || '@' + f.nickname, cur: liveStreak(st, today) });
+    if (st) out.push({ name: friendLabel(f), cur: liveStreak(st, today) });
   }
   return out.sort((a, b) => b.cur - a.cur);
 }
@@ -201,7 +223,17 @@ function renderHabits() {
       ? `<button class="chip added" disabled title="Уже в вашем списке">${e(item)} ✓</button>`
       : `<button class="chip" data-action="add" data-name="${e(item)}" title="Добавить">+ ${e(item)}</button>`).join('')
   }</div></div>`).join('');
+
+  // Факт дня
+  const fact = factFor(todayNumber(), factOffset);
+  const has = findHabit(fact.habit);
+  $('fact').innerHTML = `<div class="fact-head"><span>💡 Факт дня</span>
+      <button class="link-btn" data-action="next-fact">Ещё факт →</button></div>
+    <p>${e(fact.text)}</p>
+    ${has ? `<p class="small">✓ «${e(fact.habit)}» уже в вашем списке</p>`
+      : `<button class="btn primary small-btn" data-action="add" data-name="${e(fact.habit)}">+ Добавить привычку «${e(fact.habit)}»</button>`}`;
 }
+
 
 function signInCard(text) {
   return `<div class="card center">
@@ -210,7 +242,20 @@ function signInCard(text) {
       <button class="btn google" data-action="signin-google">${GOOGLE_SVG} Войти через Google</button>
       ${cloud.appleAvailable ? `<button class="btn apple" data-action="signin-apple">${APPLE_SVG} Войти через Apple</button>` : ''}
     </div>
-    <p class="small">Ваши привычки сохранятся в аккаунте и будут доступны на всех устройствах. Друзья видят только ваши серии по общим привычкам.</p>
+    <p class="small">Ваши привычки сохранятся в аккаунте и будут доступны на всех устройствах. Другие люди видят только ваш ник и серии.</p>
+  </div>`;
+}
+
+function nicknameForm() {
+  return `<div class="card">
+    <h2>${renaming ? 'Сменить ник' : 'Выберите ник'}</h2>
+    <p class="small">По нику вас найдут друзья. Настоящее имя по желанию можно показать только друзьям — это настраивается ниже.</p>
+    <form data-form="nickname" class="stack">
+      <label>Ник<input name="nickname" required placeholder="например, anna_run" maxlength="21" autocomplete="off" autocapitalize="none" value="${e(social.profile?.nickname || '')}"></label>
+      <div class="row"><button class="btn primary" type="submit">Сохранить</button>
+      ${renaming ? '<button class="btn" type="button" data-action="rename-cancel">Отмена</button>' : ''}</div>
+      ${flashHtml('nickname')}
+    </form>
   </div>`;
 }
 
@@ -220,17 +265,7 @@ function socialGate(text) {
   if (social.error) return `<div class="card center"><p>${e(social.error)}</p></div>`;
   if (!social.ready || (social.user && social.profile === undefined)) return `<div class="card center"><p class="small">Подключаемся…</p></div>`;
   if (!social.user) return signInCard(text);
-  if (!social.profile || renaming) return `<div class="card">
-      <h2>${renaming ? 'Ник и имя' : 'Как вас называть?'}</h2>
-      <p class="small">По нику вас найдут друзья. Имя — по желанию, его увидят ваши друзья.</p>
-      <form data-form="nickname" class="stack">
-        <label>Ник<input name="nickname" required placeholder="например, anna_run" maxlength="21" autocomplete="off" autocapitalize="none" value="${e(social.profile?.nickname || '')}"></label>
-        <label>Имя (необязательно)<input name="name" placeholder="Анна" maxlength="40" autocomplete="off" value="${e(social.profile?.name || '')}"></label>
-        <div class="row"><button class="btn primary" type="submit">Сохранить</button>
-        ${renaming ? '<button class="btn" type="button" data-action="rename-cancel">Отмена</button>' : ''}</div>
-        ${flashHtml('nickname')}
-      </form>
-    </div>`;
+  if (!social.profile || renaming) return nicknameForm();
   return null;
 }
 
@@ -239,7 +274,67 @@ function flashHtml(key) {
   return f ? `<p class="flash${f.error ? ' error' : ''}">${e(f.text)}</p>` : '';
 }
 
-function displayName(p) { return p.name ? `${e(p.name)} <span class="nick">@${e(p.nickname)}</span>` : `@${e(p.nickname)}`; }
+function inviteCard() {
+  return `<div class="card">
+    <h2>Пригласить друга, которого нет в приложении</h2>
+    <p class="small">Отправьте ссылку. Когда друг откроет её и войдёт, вы сразу станете друзьями.</p>
+    <div class="row">
+      <button class="btn whatsapp" data-action="invite" data-via="whatsapp">WhatsApp</button>
+      ${navigator.share ? '<button class="btn" data-action="invite" data-via="share">Поделиться…</button>' : ''}
+      <button class="btn" data-action="invite" data-via="copy">Скопировать ссылку</button>
+    </div>
+    ${flashHtml('invite')}
+  </div>`;
+}
+
+function similarCard() {
+  const me = social.user.uid;
+  let html = `<div class="card">
+    <h2>Люди с такими же привычками</h2>
+    <p class="small">Не обязательно звать знакомых: найдите тех, кто тоже читает, бегает или бросает курить, — и соревнуйтесь.</p>`;
+  if (!social.settings.discoverable) {
+    html += `<p class="small">Чтобы искать и быть найденным, включите «Показывать меня людям с такими же привычками» в настройках ниже.</p>`;
+  }
+  if (!state.habits.length) {
+    html += `<p class="small">Сначала добавьте хотя бы одну привычку.</p></div>`;
+    return html;
+  }
+  html += `<button class="btn" data-action="find-similar"${similarLoading ? ' disabled' : ''}>${similarLoading ? 'Ищем…' : similar ? '🔄 Обновить' : '🔍 Найти'}</button>`;
+  if (similar) {
+    const list = similar.filter(p => p.uid !== me);
+    if (!list.length) html += `<p class="small">Пока никого не нашлось. Загляните позже — людей становится больше.</p>`;
+    const today = todayNumber();
+    for (const p of list) {
+      const isFriend = social.friends.some(f => f.uid === p.uid);
+      const pending = social.outgoing.some(r => r.to === p.uid);
+      html += `<div class="person">
+        <div class="row-between"><b>@${e(p.nickname)}</b>
+          <div class="row">
+            ${isFriend ? '<span class="small">в друзьях</span>' : pending ? '<span class="small">заявка отправлена</span>'
+              : `<button class="btn small-btn" data-action="similar-friend" data-uid="${p.uid}">+ В друзья</button>`}
+            <button class="btn small-btn" data-action="challenge-person" data-uid="${p.uid}">⚔️ Вызов</button>
+          </div></div>
+        <div class="small">${p.common.map(h => { const c = liveStreak(h, today); return `${e(h.name)}: <b>${c}</b> ${plural(c)}`; }).join(' · ')}</div>
+      </div>`;
+    }
+  }
+  html += flashHtml('similar') + `</div>`;
+  return html;
+}
+
+function settingsCard() {
+  const st = social.settings;
+  return `<div class="card">
+    <h2>Настройки приватности</h2>
+    <form data-form="settings" class="stack">
+      <label class="check-row"><input type="checkbox" name="showName"${st.showName ? ' checked' : ''}><span>Показывать друзьям моё настоящее имя</span></label>
+      <label class="indent"${st.showName ? '' : ' hidden'}>Настоящее имя<input name="realName" maxlength="40" value="${e(st.realName || '')}" placeholder="Анна Иванова" autocomplete="name"></label>
+      <label class="check-row"><input type="checkbox" name="discoverable"${st.discoverable ? ' checked' : ''}><span>Показывать меня людям с такими же привычками <span class="small">— видны только ник и серии</span></span></label>
+      <button class="btn primary" type="submit">Сохранить</button>
+      ${flashHtml('settings')}
+    </form>
+  </div>`;
+}
 
 function renderFriends() {
   const el = $('view-friends');
@@ -249,39 +344,39 @@ function renderFriends() {
   const today = todayNumber();
   const todayKey = dateKey(new Date());
   let html = `<div class="card">
-    <h2>Добавить друга</h2>
+    <h2>Добавить друга по нику</h2>
     <form data-form="friend" class="row">
       <input name="nickname" placeholder="@ник друга" autocomplete="off" autocapitalize="none" required>
       <button class="btn primary" type="submit">Отправить заявку</button>
     </form>
     ${flashHtml('friend')}
-    <p class="small">Ваш ник: <b>@${e(social.profile.nickname)}</b> — отправьте его друзьям.</p>
+    <p class="small">Ваш ник: <b>@${e(social.profile.nickname)}</b></p>
   </div>`;
 
   if (social.incoming.length) {
     html += `<h2 class="section">Заявки в друзья</h2>` + social.incoming.map(r => `<div class="card row-between">
-      <div>${displayName({ name: r.fromName, nickname: r.fromNick })}<div class="small">хочет добавить вас в друзья</div></div>
+      <div><b>@${e(r.fromNick)}</b><div class="small">хочет добавить вас в друзья</div></div>
       <div class="row"><button class="btn primary" data-action="req-accept" data-id="${r.id}">Принять</button>
       <button class="btn" data-action="req-decline" data-id="${r.id}">Отклонить</button></div></div>`).join('');
   }
   if (social.outgoing.length) {
     html += `<h2 class="section">Ждут ответа</h2>` + social.outgoing.map(r => `<div class="card row-between">
-      <div>${displayName({ name: r.toName, nickname: r.toNick })}<div class="small">заявка отправлена</div></div>
+      <div><b>@${e(r.toNick)}</b><div class="small">заявка отправлена</div></div>
       <button class="btn" data-action="req-cancel" data-id="${r.id}">Отменить</button></div>`).join('');
   }
 
   html += `<h2 class="section">Друзья${social.friends.length ? ` (${social.friends.length})` : ''}</h2>`;
   if (!social.friends.length) {
-    html += `<p class="empty">Пока никого. Добавьте друга по нику — и сравнивайте серии.</p>`;
+    html += `<p class="empty">Пока никого. Добавьте друга по нику, пригласите по ссылке или найдите людей с такими же привычками.</p>`;
   }
   for (const f of social.friends) {
     const stats = social.friendStats[f.uid]?.habits || [];
     const common = state.habits.map(h => ({ h, st: stats.find(s => s.key === habitKey(h.name)) })).filter(x => x.st);
     html += `<div class="card friend">
-      <div class="row-between"><div class="friend-name">${displayName(f)}</div>
-      <div class="row"><button class="btn small-btn" data-action="challenge-friend" data-uid="${f.uid}">⚔️ Вызов</button>
+      <div class="row-between"><div class="friend-name">${friendHtml(f)}</div>
+      <div class="row"><button class="btn small-btn" data-action="challenge-person" data-uid="${f.uid}">⚔️ Вызов</button>
       <button class="icon-btn delete" data-action="friend-remove" data-uid="${f.uid}" title="Удалить из друзей" aria-label="Удалить из друзей">×</button></div></div>
-      ${common.length ? `<table class="compare"><thead><tr><th>Общая привычка</th><th>${e(f.name || '@' + f.nickname)}</th><th>Вы</th></tr></thead><tbody>${
+      ${common.length ? `<table class="compare"><thead><tr><th>Общая привычка</th><th>${e(friendLabel(f))}</th><th>Вы</th></tr></thead><tbody>${
         common.map(({ h, st }) => {
           const theirs = liveStreak(st, today), mine = streaks(h, todayKey).current;
           return `<tr><td>${e(h.name)}</td><td class="${theirs > mine ? 'lead' : ''}"><b>${theirs}</b> ${plural(theirs)}<div class="small">рекорд ${st.best}</div></td><td class="${mine > theirs ? 'lead' : ''}"><b>${mine}</b> ${plural(mine)}</td></tr>`;
@@ -290,7 +385,7 @@ function renderFriends() {
     </div>`;
   }
 
-  html += accountCard();
+  html += inviteCard() + similarCard() + settingsCard() + accountCard();
   setHTML(el, html);
 }
 
@@ -304,9 +399,9 @@ function habitWord(n) {
 
 function accountCard() {
   return `<div class="account">
-    <p class="small">Вы вошли как ${displayName(social.profile)}${social.user.email ? ` (${e(social.user.email)})` : ''}</p>
+    <p class="small">Вы вошли как <b>@${e(social.profile.nickname)}</b>${social.user.email ? ` (${e(social.user.email)})` : ''}</p>
     <div class="row center-row">
-      <button class="link-btn" data-action="rename">Изменить ник или имя</button>
+      <button class="link-btn" data-action="rename">Сменить ник</button>
       <button class="link-btn" data-action="signout">Выйти</button>
       <button class="link-btn danger" data-action="delete-account">Удалить аккаунт</button>
     </div>
@@ -324,36 +419,57 @@ function progressRow(name, p, ch, today) {
     <div class="bar"><div class="fill" style="width:${Math.min(100, count / ch.days * 100)}%"></div></div></div>` };
 }
 
+// Кому можно бросить вызов: друзья и найденные люди.
+function challengeTargets() {
+  const out = social.friends.map(f => ({ uid: f.uid, nickname: f.nickname, label: friendLabel(f), group: 'Друзья' }));
+  for (const p of similar || []) {
+    if (!out.some(t => t.uid === p.uid)) out.push({ uid: p.uid, nickname: p.nickname, label: '@' + p.nickname, group: 'Люди с такими же привычками' });
+  }
+  return out;
+}
+
+function participantName(ch, uid) {
+  const f = social.friends.find(x => x.uid === uid);
+  return f ? friendLabel(f) : '@' + (ch.names?.[uid] || 'соперник');
+}
+
 function renderChallenges() {
   const el = $('view-challenges');
-  const gate = socialGate('Войдите, чтобы бросать друзьям вызовы: кто дольше продержится с привычкой день за днём.');
+  const gate = socialGate('Войдите, чтобы бросать вызовы: кто дольше продержится с привычкой день за днём.');
   if (gate) { setHTML(el, gate); return; }
   const me = social.user.uid;
   const today = todayNumber();
-  let html = '';
+  const habits = state.habits;
+  const targets = challengeTargets();
+  const groupsHtml = ['Друзья', 'Люди с такими же привычками'].map(g => {
+    const list = targets.filter(t => t.group === g);
+    return list.length ? `<optgroup label="${g}">${list.map(t => `<option value="${t.uid}"${t.uid === challengeFriend ? ' selected' : ''}>${e(t.label)}</option>`).join('')}</optgroup>` : '';
+  }).join('');
 
-  if (!social.friends.length) {
-    html += `<div class="card center"><p>Чтобы бросить вызов, сначала добавьте друга.</p><button class="btn primary" data-action="go-friends">К друзьям</button></div>`;
-  } else {
-    const habits = state.habits;
-    html += `<div class="card">
-      <h2>Бросить вызов</h2>
-      <p class="small">Выберите друга и привычку. Побеждает тот, кто первым выполнит её нужное число дней подряд. Пропуск дня — выбываете.</p>
-      <form data-form="challenge" class="stack">
-        <label>Друг<select name="friend">${social.friends.map(f => `<option value="${f.uid}"${f.uid === challengeFriend ? ' selected' : ''}>${e(f.name ? `${f.name} (@${f.nickname})` : '@' + f.nickname)}</option>`).join('')}</select></label>
-        <label>Привычка${habits.length
-          ? `<select name="habit">${habits.map(h => `<option value="${h.id}">${e(h.name)}</option>`).join('')}</select>`
-          : `<span class="small">Сначала добавьте привычку на вкладке «Мои привычки».</span>`}</label>
-        <label>Сколько дней подряд<select name="days">${CHALLENGE_DAYS.map(n => `<option value="${n}"${n === 21 ? ' selected' : ''}>${n} ${plural(n)}</option>`).join('')}</select></label>
-        <button class="btn primary" type="submit"${habits.length ? '' : ' disabled'}>⚔️ Бросить вызов</button>
-        ${flashHtml('challenge')}
-      </form></div>`;
-  }
+  let html = `<div class="card">
+    <h2>Бросить вызов</h2>
+    <p class="small">Побеждает тот, кто первым выполнит привычку нужное число дней подряд. Пропуск дня — выбываете.</p>
+    <form data-form="challenge" class="stack">
+      <label>Привычка${habits.length
+        ? `<select name="habit">${habits.map(h => `<option value="${h.id}">${e(h.name)}</option>`).join('')}</select>`
+        : `<span class="small">Сначала добавьте привычку на вкладке «Мои привычки».</span>`}</label>
+      <label>Сколько дней подряд<select name="days">${CHALLENGE_DAYS.map(n => `<option value="${n}"${n === 21 ? ' selected' : ''}>${n} ${plural(n)}</option>`).join('')}</select></label>
+      ${targets.length ? `<label>Соперник<select name="friend">${groupsHtml}</select></label>
+        <button class="btn primary" type="submit"${habits.length ? '' : ' disabled'}>⚔️ Бросить вызов</button>` : ''}
+      <div class="or">${targets.length ? 'или отправьте вызов тому, кого ещё нет в приложении' : 'Отправьте вызов другу — даже если его ещё нет в приложении'}</div>
+      <div class="row">
+        <button class="btn whatsapp" type="button" data-action="ch-invite" data-via="whatsapp"${habits.length ? '' : ' disabled'}>WhatsApp</button>
+        ${navigator.share ? `<button class="btn" type="button" data-action="ch-invite" data-via="share"${habits.length ? '' : ' disabled'}>Поделиться…</button>` : ''}
+        <button class="btn" type="button" data-action="ch-invite" data-via="copy"${habits.length ? '' : ' disabled'}>Скопировать ссылку</button>
+      </div>
+      ${!targets.length ? `<p class="small">Или <button class="link-btn" type="button" data-action="go-friends">найдите соперника</button> среди людей с такими же привычками.</p>` : ''}
+      ${flashHtml('challenge')}
+    </form></div>`;
 
   const groups = { incoming: [], active: [], waiting: [], done: [] };
   for (const ch of social.challenges) {
     const other = ch.participants.find(u => u !== me);
-    const otherName = ch.names?.[other] || 'Друг';
+    const otherName = participantName(ch, other);
     if (ch.status === 'pending') {
       (ch.participants[1] === me ? groups.incoming : groups.waiting).push(`<div class="card challenge">
         <div class="ch-title">⚔️ ${e(ch.habitName)}</div>
@@ -396,8 +512,88 @@ function renderChallenges() {
   if (groups.active.length) html += `<h2 class="section">Идут сейчас</h2>${groups.active.join('')}`;
   if (groups.waiting.length) html += `<h2 class="section">Ждут ответа</h2>${groups.waiting.join('')}`;
   if (groups.done.length) html += `<h2 class="section">Завершённые</h2>${groups.done.join('')}`;
-  if (!social.challenges.length && social.friends.length) html += `<p class="empty">Вызовов пока нет.</p>`;
   setHTML(el, html);
+}
+
+// ---------- Приглашения по ссылке ----------
+
+// Код из ссылки запоминаем, чтобы он пережил вход через Google.
+(function readInviteFromUrl() {
+  const url = new URL(location.href);
+  const code = url.searchParams.get('invite');
+  if (code) {
+    try { localStorage.setItem(INVITE_KEY, code); } catch (err) {}
+    url.searchParams.delete('invite');
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }
+  let saved = null;
+  try { saved = localStorage.getItem(INVITE_KEY); } catch (err) {}
+  if (saved) pendingInvite = { code: saved, status: 'new' };
+})();
+
+function dropInvite() {
+  pendingInvite = null;
+  try { localStorage.removeItem(INVITE_KEY); } catch (err) {}
+  render();
+}
+
+function renderInviteBanner() {
+  const el = $('inviteBanner');
+  if (!pendingInvite || !cloud.cloudAvailable) { el.hidden = true; return; }
+  el.hidden = false;
+  const inv = pendingInvite;
+  let body = '';
+  if (!social.ready) body = '<p class="small">Загружаем приглашение…</p>';
+  else if (!social.user) body = `<p><b>Вас пригласили в «Полезные привычки»!</b></p><p class="small">Войдите, чтобы принять приглашение.</p>
+    <div class="signin"><button class="btn google" data-action="signin-google">${GOOGLE_SVG} Войти через Google</button>
+    ${cloud.appleAvailable ? `<button class="btn apple" data-action="signin-apple">${APPLE_SVG} Войти через Apple</button>` : ''}</div>`;
+  else if (social.profile === undefined) body = '<p class="small">Загружаем приглашение…</p>';
+  else if (!social.profile) { setHTML(el, `<p class="invite-note"><b>Вас пригласили в «Полезные привычки»!</b> Выберите ник — и сможете принять приглашение.</p>${nicknameForm()}`); return; }
+  else {
+    if (inv.status === 'new') {
+      inv.status = 'loading';
+      cloud.getInvite(inv.code).then(data => {
+        Object.assign(inv, data ? { status: 'ready', data } : { status: 'missing' });
+        render();
+      }).catch(() => { inv.status = 'missing'; render(); });
+    }
+    if (inv.status === 'loading') body = '<p class="small">Загружаем приглашение…</p>';
+    else if (inv.status === 'missing') body = `<p>Приглашение не найдено — возможно, ссылка устарела.</p><button class="btn" data-action="invite-dismiss">Закрыть</button>`;
+    else if (inv.status === 'ready') {
+      const d = inv.data;
+      if (d.from === social.user.uid) body = `<p>Это ваша собственная ссылка-приглашение. Отправьте её другу!</p><button class="btn" data-action="invite-dismiss">Закрыть</button>`;
+      else body = `<p><b>@${e(d.nickname)}</b> ${d.habitName
+          ? `бросает вам вызов: <b>${e(d.habitName)}</b> — ${d.days} ${plural(d.days)} подряд! Кто продержится дольше?`
+          : 'приглашает вас в друзья — будете видеть серии друг друга по общим привычкам.'}</p>
+        <div class="row"><button class="btn primary" data-action="invite-accept">${d.habitName ? 'Принять вызов' : 'Добавить в друзья'}</button>
+        <button class="btn" data-action="invite-dismiss">Не сейчас</button></div>`;
+    }
+  }
+  setHTML(el, `<div class="card invite-banner">${body}${flashHtml('inviteBanner')}</div>`);
+}
+
+function inviteText(habitName, days, url) {
+  return habitName
+    ? `Бросаю тебе вызов: «${habitName}» ${days} ${plural(days)} подряд! Кто продержится дольше? 💪 Принять вызов: ${url}`
+    : `Давай вместе следить за полезными привычками и соревноваться сериями! Мой ник @${social.profile.nickname}. Присоединяйся: ${url}`;
+}
+
+function shareInvite(via, flashKey, habitName = null, days = null) {
+  const inv = cloud.createInvite(habitName, days);
+  const text = inviteText(habitName, days, inv.url);
+  inv.saved.catch(err => { console.error(err); flash[flashKey] = { text: 'Не удалось сохранить приглашение. Попробуйте ещё раз.', error: true }; render(); });
+  if (via === 'whatsapp') {
+    window.open('https://wa.me/?text=' + encodeURIComponent(text), '_blank', 'noopener');
+    flash[flashKey] = { text: 'Открываем WhatsApp… Выберите, кому отправить.' };
+  } else if (via === 'share') {
+    navigator.share({ text }).catch(() => {});
+    flash[flashKey] = null;
+  } else {
+    (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject())
+      .then(() => { flash[flashKey] = { text: 'Ссылка скопирована — вставьте её в любой мессенджер.' }; render(); })
+      .catch(() => { flash[flashKey] = { text: 'Скопируйте ссылку: ' + inv.url }; render(); });
+  }
+  render();
 }
 
 // ---------- События ----------
@@ -414,30 +610,32 @@ async function run(key, fn) {
   render();
 }
 
+function goTab(t) {
+  tab = t;
+  try { localStorage.setItem(TAB_KEY, tab); } catch (err) {}
+  render(); window.scrollTo(0, 0);
+}
+
 document.addEventListener('click', ev => {
   const t = ev.target.closest('[data-action], .tabs button');
   if (!t) return;
-  if (t.dataset.tab) {
-    tab = t.dataset.tab;
-    try { localStorage.setItem(TAB_KEY, tab); } catch (err) {}
-    render(); window.scrollTo(0, 0);
-    return;
-  }
+  if (t.dataset.tab) { goTab(t.dataset.tab); return; }
   const { action, id } = t.dataset;
   switch (action) {
     case 'toggle': toggle(id, t.dataset.day); break;
     case 'remove': removeHabit(id); break;
     case 'add': addHabit(t.dataset.name); break;
+    case 'next-fact': factOffset++; render(); break;
     case 'goal-edit': editingGoal = editingGoal === id ? null : id; render(); break;
     case 'goal-set': setGoal(id, t.dataset.days ? Number(t.dataset.days) : null); break;
     case 'signin-google': run(null, cloud.signInGoogle); break;
     case 'signin-apple': run(null, cloud.signInApple); break;
-    case 'signout': run(null, cloud.signOut); break;
+    case 'signout': similar = null; run(null, cloud.signOut); break;
     case 'rename': renaming = true; flash.nickname = null; render(); break;
     case 'rename-cancel': renaming = false; render(); break;
     case 'delete-account':
       if (confirm('Удалить аккаунт? Друзья, вызовы и данные в облаке будут удалены без возможности восстановления. Привычки на этом устройстве останутся.')) {
-        run(null, async () => { await cloud.deleteAccount(); alert('Аккаунт удалён.'); });
+        run(null, async () => { await cloud.deleteAccount(); similar = null; alert('Аккаунт удалён.'); });
       }
       break;
     case 'req-accept': run('friend', () => cloud.respondFriendRequest(social.incoming.find(r => r.id === id), true)); break;
@@ -445,17 +643,52 @@ document.addEventListener('click', ev => {
     case 'req-cancel': run('friend', () => cloud.cancelFriendRequest(social.outgoing.find(r => r.id === id))); break;
     case 'friend-remove': {
       const f = social.friends.find(x => x.uid === t.dataset.uid);
-      if (f && confirm(`Удалить ${f.name || '@' + f.nickname} из друзей?`)) run('friend', () => cloud.removeFriend(f.uid));
+      if (f && confirm(`Удалить ${friendLabel(f)} из друзей?`)) run('friend', () => cloud.removeFriend(f.uid));
       break;
     }
-    case 'challenge-friend': challengeFriend = t.dataset.uid; tab = 'challenges'; render(); window.scrollTo(0, 0); break;
-    case 'go-friends': tab = 'friends'; render(); break;
+    case 'invite': shareInvite(t.dataset.via, 'invite'); break;
+    case 'find-similar':
+      similarLoading = true; render();
+      run('similar', async () => { try { similar = await cloud.findSimilar(); } finally { similarLoading = false; } });
+      break;
+    case 'similar-friend': {
+      const p = similar?.find(x => x.uid === t.dataset.uid);
+      if (p) run('similar', async () => { await cloud.sendFriendRequestTo(p); return `Заявка отправлена @${p.nickname}.`; });
+      break;
+    }
+    case 'challenge-person': challengeFriend = t.dataset.uid; goTab('challenges'); break;
+    case 'go-friends': goTab('friends'); break;
+    case 'ch-invite': {
+      const form = t.closest('form');
+      const habit = state.habits.find(h => h.id === form.habit?.value);
+      if (habit) shareInvite(t.dataset.via, 'challenge', habit.name, Number(form.days.value));
+      break;
+    }
     case 'ch-accept': run('challenge', () => cloud.respondChallenge(social.challenges.find(c => c.id === id), true, name => addHabit(name, { silent: true }))); break;
     case 'ch-decline': run('challenge', () => cloud.respondChallenge(social.challenges.find(c => c.id === id), false)); break;
     case 'ch-delete':
       if (confirm('Удалить этот вызов у обоих участников?')) run('challenge', () => cloud.deleteChallenge(social.challenges.find(c => c.id === id)));
       break;
     case 'ch-addhabit': addHabit(t.dataset.name, { silent: true }); break;
+    case 'invite-dismiss': dropInvite(); break;
+    case 'invite-accept': {
+      const d = pendingInvite?.data;
+      if (!d) break;
+      run('inviteBanner', async () => {
+        await cloud.acceptInvite(d, name => addHabit(name, { silent: true }));
+        dropInvite();
+        goTab(d.habitName ? 'challenges' : 'friends');
+      });
+      break;
+    }
+  }
+});
+
+document.addEventListener('change', ev => {
+  // показываем поле имени, только когда отмечена галочка
+  if (ev.target.name === 'showName') {
+    syncNameField(ev.target.form);
+    if (ev.target.checked && !ev.target.form.realName.value) ev.target.form.realName.value = social.user?.displayName || '';
   }
 });
 
@@ -475,7 +708,15 @@ document.addEventListener('submit', ev => {
     const n = Math.round(Number(fd.get('days')));
     if (n >= 1 && n <= 3650) setGoal(form.dataset.id, n); else form.days.focus();
   } else if (kind === 'nickname') {
-    run('nickname', async () => { await cloud.claimNickname(fd.get('nickname'), fd.get('name')); renaming = false; });
+    run('nickname', async () => { await cloud.claimNickname(fd.get('nickname')); renaming = false; });
+  } else if (kind === 'settings') {
+    const showName = !!fd.get('showName');
+    const realName = (fd.get('realName') || '').trim();
+    if (showName && !realName) { flash.settings = { text: 'Впишите имя или снимите галочку.', error: true }; render(); return; }
+    run('settings', async () => {
+      await cloud.saveSettings({ showName, realName, discoverable: !!fd.get('discoverable') });
+      return 'Сохранено.';
+    });
   } else if (kind === 'friend') {
     run('friend', async () => {
       const r = await cloud.sendFriendRequest(fd.get('nickname'));
@@ -483,20 +724,20 @@ document.addEventListener('submit', ev => {
       return r === 'accepted' ? 'Этот человек уже звал вас в друзья — теперь вы друзья!' : 'Заявка отправлена. Как только друг её примет, вы увидите его серии.';
     });
   } else if (kind === 'challenge') {
-    const friend = social.friends.find(f => f.uid === fd.get('friend'));
+    const target = challengeTargets().find(x => x.uid === fd.get('friend'));
     const habit = state.habits.find(h => h.id === fd.get('habit'));
-    challengeFriend = friend?.uid || '';
-    if (!friend || !habit) return;
+    challengeFriend = target?.uid || '';
+    if (!target || !habit) return;
     run('challenge', async () => {
-      await cloud.createChallenge(friend, habit.name, Number(fd.get('days')));
-      return `Вызов отправлен ${friend.name || '@' + friend.nickname}!`;
+      await cloud.createChallenge(target, habit.name, Number(fd.get('days')));
+      return `Вызов отправлен ${target.label}!`;
     });
   }
 });
 
 // Перерисовываем при смене дня, если вкладка открыта через полночь.
 let lastKey = dateKey(new Date());
-setInterval(() => { const k = dateKey(new Date()); if (k !== lastKey) { lastKey = k; render(); } }, 60000);
+setInterval(() => { const k = dateKey(new Date()); if (k !== lastKey) { lastKey = k; factOffset = 0; render(); } }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 
 // Пока привычек нет — сразу показываем готовый список.
