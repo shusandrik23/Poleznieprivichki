@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Тренер привычек</title>
+<title>Полезные привычки — ежедневный трекер</title>
 <style>
   :root {
     --bg: #f6f5f1;
@@ -37,7 +37,8 @@
   }
   main { max-width: 640px; margin: 0 auto; padding: 24px 16px 48px; }
   header h1 { margin: 0; font-size: 26px; }
-  header .date { color: var(--muted); margin-top: 2px; }
+  header .tagline { margin: 4px 0 8px; color: var(--muted); font-size: 15px; }
+  header .date { color: var(--text); font-weight: 600; margin-top: 2px; }
   header .date::first-letter { text-transform: uppercase; }
   .progress { margin: 16px 0 20px; }
   .progress-bar { height: 8px; border-radius: 4px; background: var(--line); overflow: hidden; }
@@ -93,7 +94,8 @@
 <body>
 <main>
   <header>
-    <h1>Тренер привычек</h1>
+    <h1>Полезные привычки</h1>
+    <p class="tagline">Каждый день отмечайте, что сделали, и следите за сериями дней подряд</p>
     <div class="date" id="today"></div>
   </header>
 
