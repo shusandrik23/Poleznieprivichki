@@ -6,7 +6,7 @@ import { CATEGORIES, catalogName, keyOf, keyOfName, normKey, displayName, nameOf
 import { factFor } from './facts.js';
 import { quoteFor } from './quotes.js';
 import { PLANS, goalLimit } from './plans.js';
-import { isNative, hasNativeGoogle, appUrl, nativeShare, copyText, openExternal, onBackButton } from './native.js';
+import { isNative, hasNativeGoogle, appUrl, PUBLIC_URL, nativeShare, copyText, openExternal, onBackButton, onAppUrlOpen } from './native.js';
 import { tournamentsAround, tournamentStatus, canJoin, FLAG_LIMIT, tourProgress } from './tournaments.js';
 
 const STORAGE_KEY = 'habit-trainer-v1';
@@ -216,6 +216,7 @@ function render() {
   }
   for (const v of document.querySelectorAll('.view')) v.hidden = v.id !== 'view-' + tab;
   renderInviteBanner();
+  renderAppAuth();
 
   if (tab === 'habits') renderHabits();
   if (tab === 'friends') renderFriends();
@@ -366,16 +367,19 @@ function renderHabits() {
       : `<button class="btn primary small-btn" data-action="add" data-name="${e(factName)}">${t('fact.add', { name: e(factName) })}</button>`}`;
 }
 
+// Кнопки входа. В Android-приложении есть запасной вход через браузер.
+function signInButtons() {
+  return `<div class="signin">
+      ${!isNative || hasNativeGoogle() ? `<button class="btn google" data-action="signin-google">${GOOGLE_SVG} ${t('signin.google')}</button>` : ''}
+      ${isNative ? `<button class="btn" data-action="signin-browser">🌐 ${t('signin.browser')}</button>` : ''}
+      ${cloud.appleAvailable ? `<button class="btn apple" data-action="signin-apple">${APPLE_SVG} ${t('signin.apple')}</button>` : ''}
+    </div>${isNative ? `<p class="small">${t('signin.browserNote')}</p>` : ''}`;
+}
+
 function signInCard(text) {
-  if (isNative && !hasNativeGoogle()) {
-    return `<div class="card center"><p>${text}</p><p class="small">${t('signin.nativeSoon')}</p></div>`;
-  }
   return `<div class="card center">
     <p>${text}</p>
-    <div class="signin">
-      <button class="btn google" data-action="signin-google">${GOOGLE_SVG} ${t('signin.google')}</button>
-      ${cloud.appleAvailable ? `<button class="btn apple" data-action="signin-apple">${APPLE_SVG} ${t('signin.apple')}</button>` : ''}
-    </div>
+    ${signInButtons()}
     ${flashHtml('signin')}
     <p class="small">${t('signin.note')}</p>
   </div>`;
@@ -944,8 +948,7 @@ function renderInviteBanner() {
   let body = '';
   if (!social.ready) body = `<p class="small">${t('ib.loading')}</p>`;
   else if (!social.user) body = `<p><b>${t('ib.invited')}</b></p><p class="small">${t('ib.signinToAccept')}</p>
-    <div class="signin"><button class="btn google" data-action="signin-google">${GOOGLE_SVG} ${t('signin.google')}</button>
-    ${cloud.appleAvailable ? `<button class="btn apple" data-action="signin-apple">${APPLE_SVG} ${t('signin.apple')}</button>` : ''}</div>${flashHtml('signin')}`;
+    ${signInButtons()}${flashHtml('signin')}`;
   else if (social.profile === undefined) body = `<p class="small">${t('ib.loading')}</p>`;
   else if (!social.profile) { setHTML(el, `<p class="invite-note"><b>${t('ib.invited')}</b> ${t('ib.chooseNick')}</p>${nicknameForm()}`); return; }
   else {
@@ -993,6 +996,66 @@ function shareInvite(via, flashKey, habitName = null, days = null, photoRequired
       .catch(() => { flash[flashKey] = { text: t('invite.copyManual') + inv.url }; render(); });
   }
   render();
+}
+
+// ---------- Запасной вход через браузер (Android) ----------
+// Приложение открывает сайт в Chrome (?appauth=код), там человек входит через Google, а кнопка
+// «Вернуться в YouBoost» открывает com.youboost.app://auth?state=код&idToken=… — и приложение входит по этому токену.
+
+const AUTH_STATE_KEY = 'youboost-auth-state';
+
+function startBrowserSignIn() {
+  const state = Math.random().toString(36).slice(2) + Date.now().toString(36);
+  try { localStorage.setItem(AUTH_STATE_KEY, state); } catch (err) {}
+  flash.signin = { text: t('signin.browserOpening') };
+  render();
+  openExternal(`${PUBLIC_URL}?appauth=${state}`);
+}
+
+onAppUrlOpen(url => {
+  if (!url || !url.startsWith('com.youboost.app://auth')) return;
+  const q = new URL(url.replace('com.youboost.app://', 'https://x/')).searchParams;
+  let expected = null;
+  try { expected = localStorage.getItem(AUTH_STATE_KEY); } catch (err) {}
+  if (!q.get('idToken') || !expected || q.get('state') !== expected) {
+    flash.signin = { text: t('err.signin') + ' state', error: true }; render(); return;
+  }
+  try { localStorage.removeItem(AUTH_STATE_KEY); } catch (err) {}
+  flash.signin = { text: t('signin.opening') }; render();
+  run('signin', () => cloud.signInWithIdToken(q.get('idToken')));
+});
+
+// На сайте: страница входа для приложения
+const appAuthState = !isNative ? new URLSearchParams(location.search).get('appauth') : null;
+let appAuth = appAuthState ? { status: 'ready' } : null;
+
+async function appAuthSignIn() {
+  appAuth = { status: 'working' }; renderAppAuth();
+  try {
+    const idToken = await cloud.webSignInForApp();
+    const qs = `state=${encodeURIComponent(appAuthState)}&idToken=${encodeURIComponent(idToken)}`;
+    appAuth = { status: 'done', link: `intent://auth?${qs}#Intent;scheme=com.youboost.app;package=com.youboost.app;end`, plain: `com.youboost.app://auth?${qs}` };
+  } catch (err) {
+    console.error(err);
+    appAuth = { status: 'error', text: `${t('err.signin')} ${err.code || err.message}` };
+  }
+  renderAppAuth();
+}
+
+function renderAppAuth() {
+  const el = $('appAuth');
+  if (!appAuth) { el.hidden = true; return; }
+  el.hidden = false;
+  const a = appAuth;
+  el.innerHTML = `<div class="card center invite-banner">
+    <h2>${t('appauth.title')}</h2>
+    ${a.status === 'done'
+      ? `<p>${t('appauth.done')}</p><a class="btn primary" href="${a.link}">${t('appauth.back')}</a>
+         <p class="small"><a href="${a.plain}">${t('appauth.altLink')}</a></p>`
+      : `<p class="small">${t('appauth.text')}</p>
+         <div class="signin"><button class="btn google" data-action="appauth-signin"${a.status === 'working' || !social.ready ? ' disabled' : ''}>${GOOGLE_SVG} ${t('signin.google')}</button></div>
+         ${a.status === 'error' ? `<p class="flash error">${e(a.text)}</p>` : ''}`}
+  </div>`;
 }
 
 // ---------- События ----------
@@ -1053,6 +1116,8 @@ document.addEventListener('click', ev => {
     case 'goal-edit': editingGoal = editingGoal === id ? null : id; flash.goal = null; render(); break;
     case 'goal-set': setGoal(id, el.dataset.days ? Number(el.dataset.days) : null); break;
     case 'signin-google': flash.signin = { text: t('signin.opening') }; render(); run('signin', cloud.signInGoogle); break;
+    case 'signin-browser': startBrowserSignIn(); break;
+    case 'appauth-signin': appAuthSignIn(); break;
     case 'signin-apple': flash.signin = { text: t('signin.opening') }; render(); run('signin', cloud.signInApple); break;
     case 'signout': similar = null; run(null, cloud.signOut); break;
     case 'rename': renaming = true; flash.nickname = null; render(); break;

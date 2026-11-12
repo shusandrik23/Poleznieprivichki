@@ -4,7 +4,7 @@ import { streaks, challengeProgress, todayNumber, dateKey } from './core.js';
 import { keyOf, keyOfName, normKey } from './catalog.js';
 import * as I from './i18n.js';
 import { tournamentById, tourProgress, FLAG_LIMIT } from './tournaments.js';
-import { isNative, hasNativeGoogle, nativeGoogleIdToken, nativeSignOut, appUrl } from './native.js';
+import { isNative, hasNativeGoogle, nativeGoogleIdToken, nativeSignOut, appUrl, bridgeCheck, pluginHasMethod } from './native.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/10.14.1';
 const params = new URLSearchParams(location.search);
@@ -87,13 +87,16 @@ export async function signInGoogle() {
     try {
       idToken = await Promise.race([
         nativeGoogleIdToken(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error(I.t('err.signinTimeout'))), 120000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error(I.t('err.signinTimeout'))), 60000)),
       ]);
     } catch (e) {
       // Показываем настоящую причину — по ней видно, что не так (отпечаток SHA-1, нет аккаунта и т. п.).
       const msg = e?.message || e?.code || String(e);
       if (/cancel/i.test(msg)) return;
-      throw new Error(`${I.t('err.signin')} ${msg}`);
+      const diag = `[bridge: ${await bridgeCheck()}; plugin: ${pluginHasMethod('FirebaseAuthentication', 'signInWithGoogle') ? 'ok' : 'no'}]`;
+      const err = new Error(`${I.t('err.signin')} ${msg} ${diag}`);
+      err.native = true;
+      throw err;
     }
     if (!idToken) throw new Error(`${I.t('err.signin')} no idToken`);
     await fb.signInWithCredential(auth, fb.GoogleAuthProvider.credential(idToken));
@@ -118,6 +121,19 @@ async function signInWith(provider) {
       throw e;
     }
   }
+}
+
+// Вход по Google ID-токену, полученному через браузер (запасной вход в Android-приложении).
+export async function signInWithIdToken(idToken) {
+  await fb.signInWithCredential(auth, fb.GoogleAuthProvider.credential(idToken));
+}
+
+// На сайте: вход через Google для передачи в приложение — возвращает Google ID-токен.
+export async function webSignInForApp() {
+  const result = await fb.signInWithPopup(auth, new fb.GoogleAuthProvider());
+  const cred = fb.GoogleAuthProvider.credentialFromResult(result);
+  if (!cred?.idToken) throw new Error('no idToken');
+  return cred.idToken;
 }
 
 export async function signOut() {

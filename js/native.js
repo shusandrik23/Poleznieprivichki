@@ -73,6 +73,26 @@ export function openExternal(url) {
   else window.open(url, '_blank', 'noopener');
 }
 
+// Проверка связи с Android: отвечает ли нативная часть вообще (для диагностики входа).
+export async function bridgeCheck() {
+  try {
+    const app = await plugin('App');
+    const info = await Promise.race([app.getInfo(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000))]);
+    return 'ok ' + (info?.version || '');
+  } catch (err) { return 'fail ' + (err?.message || err); }
+}
+export function pluginHasMethod(name, method) {
+  return !!window.Capacitor?.PluginHeaders?.find(p => p.name === name)?.methods?.some(m => m.name === method);
+}
+
+// Ссылки, открывшие приложение (возврат из браузера после входа).
+export async function onAppUrlOpen(handler) {
+  if (!isNative) return;
+  const app = await plugin('App');
+  app.addListener('appUrlOpen', ev => handler(ev.url));
+  try { const r = await app.getLaunchUrl(); if (r?.url) handler(r.url); } catch (err) {}
+}
+
 // Кнопка «Назад» на Android. handler возвращает true, если что-то закрыл.
 export async function onBackButton(handler) {
   if (!isNative) return;
