@@ -1,4 +1,5 @@
 // Мост к Android-приложению (Capacitor). В браузере всё это просто не используется.
+import { registerPlugin } from './vendor/capacitor-core.js';
 
 // Мост Capacitor внедряется в страницу до запуска наших скриптов (androidBridge — его канал связи с Android).
 export const isNative = !!(window.androidBridge || window.Capacitor?.isNativePlatform?.());
@@ -10,26 +11,18 @@ export function appUrl() {
   return isNative ? PUBLIC_URL : location.origin + location.pathname;
 }
 
-let corePromise = null;
-// Ядро Capacitor (vendor/capacitor.js) кладётся в сборку скриптом scripts/build-web.mjs.
-function loadCore() {
-  if (!corePromise) {
-    corePromise = new Promise((resolve, reject) => {
-      if (window.Capacitor?.registerPlugin) return resolve();
-      const s = document.createElement('script');
-      s.src = 'vendor/capacitor.js';
-      s.onload = () => resolve();
-      s.onerror = () => reject(new Error('Capacitor core not found'));
-      document.head.appendChild(s);
-    });
-  }
-  return corePromise;
+// Ядро Capacitor (копия @capacitor/core) подключено обычным импортом — через него вызываются нативные плагины.
+// ВАЖНО: plugin() — обычная (не async) функция, и её результат нельзя «ждать» через await.
+// Объект плагина Capacitor отвечает на любое свойство, в том числе `then`, поэтому JavaScript
+// принимает его за обещание и зависает навсегда. Ждём только результаты методов плагина.
+const plugins = {};
+function plugin(name) {
+  return (plugins[name] ||= registerPlugin(name));
 }
 
-const plugins = {};
-async function plugin(name) {
-  await loadCore();
-  return (plugins[name] ||= window.Capacitor.registerPlugin(name));
+// Ограничение по времени, чтобы ничего не висело молча.
+function withTimeout(promise, ms, label) {
+  return Promise.race([promise, new Promise((_, rej) => setTimeout(() => rej(new Error(label + ' timeout')), ms))]);
 }
 
 // Есть ли нативный вход через Google (плагин ставится вместе с настройками Firebase).
@@ -38,32 +31,29 @@ export function hasNativeGoogle() {
 }
 
 export async function nativeGoogleIdToken() {
-  const fa = await plugin('FirebaseAuthentication');
   // Классическое окно выбора аккаунта Google (Google Play services): на части телефонов
   // новый Credential Manager не показывает окно и не отвечает.
-  const res = await fa.signInWithGoogle({ useCredentialManager: false });
-  return res.credential?.idToken;
+  const res = await plugin('FirebaseAuthentication').signInWithGoogle({ useCredentialManager: false });
+  return res?.credential?.idToken;
 }
 
 export async function nativeSignOut() {
   if (!hasNativeGoogle()) return;
-  try { await (await plugin('FirebaseAuthentication')).signOut(); } catch (err) {}
+  try { await withTimeout(plugin('FirebaseAuthentication').signOut(), 5000, 'signOut'); } catch (err) {}
 }
 
 // Системное меню «Поделиться»: текст и (по желанию) картинка.
 export async function nativeShare({ text, imageDataUrl, filename }) {
-  const share = await plugin('Share');
   if (imageDataUrl) {
-    const fs = await plugin('Filesystem');
-    const res = await fs.writeFile({ path: filename, data: imageDataUrl.split(',')[1], directory: 'CACHE' });
-    await share.share({ text, files: [res.uri], dialogTitle: 'Поделиться серией' });
+    const res = await plugin('Filesystem').writeFile({ path: filename, data: imageDataUrl.split(',')[1], directory: 'CACHE' });
+    await plugin('Share').share({ text, files: [res.uri], dialogTitle: 'YouBoost' });
   } else {
-    await share.share({ text, dialogTitle: 'Поделиться' });
+    await plugin('Share').share({ text, dialogTitle: 'YouBoost' });
   }
 }
 
 export async function copyText(text) {
-  if (isNative) return (await plugin('Clipboard')).write({ string: text });
+  if (isNative) return plugin('Clipboard').write({ string: text });
   return navigator.clipboard.writeText(text);
 }
 
@@ -76,8 +66,7 @@ export function openExternal(url) {
 // Проверка связи с Android: отвечает ли нативная часть вообще (для диагностики входа).
 export async function bridgeCheck() {
   try {
-    const app = await plugin('App');
-    const info = await Promise.race([app.getInfo(), new Promise((_, rej) => setTimeout(() => rej(new Error('timeout')), 5000))]);
+    const info = await withTimeout(plugin('App').getInfo(), 5000, 'bridge');
     return 'ok ' + (info?.version || '');
   } catch (err) { return 'fail ' + (err?.message || err); }
 }
@@ -88,14 +77,12 @@ export function pluginHasMethod(name, method) {
 // Ссылки, открывшие приложение (возврат из браузера после входа).
 export async function onAppUrlOpen(handler) {
   if (!isNative) return;
-  const app = await plugin('App');
-  app.addListener('appUrlOpen', ev => handler(ev.url));
-  try { const r = await app.getLaunchUrl(); if (r?.url) handler(r.url); } catch (err) {}
+  plugin('App').addListener('appUrlOpen', ev => handler(ev.url));
+  try { const r = await withTimeout(plugin('App').getLaunchUrl(), 5000, 'launchUrl'); if (r?.url) handler(r.url); } catch (err) {}
 }
 
 // Кнопка «Назад» на Android. handler возвращает true, если что-то закрыл.
 export async function onBackButton(handler) {
   if (!isNative) return;
-  const app = await plugin('App');
-  app.addListener('backButton', () => { if (!handler()) app.minimizeApp(); });
+  plugin('App').addListener('backButton', () => { if (!handler()) plugin('App').minimizeApp(); });
 }
