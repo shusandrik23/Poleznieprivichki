@@ -1,4 +1,4 @@
-# Полезные привычки — ежедневный трекер
+# YouBoost — трекер полезных привычек
 
 Веб-приложение без сборки: HTML, CSS и JavaScript-модули. Работает на GitHub Pages:
 https://shusandrik23.github.io/Poleznieprivichki/
@@ -61,9 +61,9 @@ https://shusandrik23.github.io/Poleznieprivichki/
 
 ## Android-приложение (Capacitor)
 
-Проект Android уже лежит в папке `android/`: название «Полезные привычки», пакет `com.poleznieprivychki.app`, своя иконка и заставка.
+Проект Android уже лежит в папке `android/`: название YouBoost, пакет `com.youboost.app`, своя иконка и заставка.
 
-**Готовый APK без всякой установки.** При каждом обновлении ветки GitHub сам собирает приложение: вкладка **Actions** → последний запуск **Android APK** → внизу **Artifacts** → `poleznie-privychki-debug`. Внутри — `app-debug.apk`: перекиньте на телефон и установите (Android попросит разрешить установку из этого источника).
+**Готовый APK без всякой установки.** При каждом обновлении ветки GitHub сам собирает приложение: вкладка **Actions** → последний запуск **Android APK** → внизу **Artifacts** → `youboost-debug`. Внутри — `app-debug.apk`: перекиньте на телефон и установите (Android попросит разрешить установку из этого источника).
 
 **Сборка на своём компьютере** (нужны Node.js 22 и Android Studio):
 
@@ -79,7 +79,7 @@ npm run open:android  # открывает проект в Android Studio → Ru
 
 **Вход через Google в приложении** включается вместе с Firebase:
 
-1. В консоли Firebase: Project settings → Your apps → **Add app → Android**, пакет `com.poleznieprivychki.app`. Добавить SHA-1 ключа подписи (для отладочной сборки: `cd android && ./gradlew signingReport`).
+1. В консоли Firebase: Project settings → Your apps → **Add app → Android**, пакет `com.youboost.app`. Добавить SHA-1 ключа подписи (для отладочной сборки: `cd android && ./gradlew signingReport`).
 2. Скачать `google-services.json` и положить в `android/app/`.
 3. `npm install @capacitor-firebase/authentication` и в `android/variables.gradle` добавить `rgcfaIncludeGoogle = true`; в `capacitor.config.json` — `"plugins": { "FirebaseAuthentication": { "skipNativeAuth": true, "providers": ["google.com"] } }`.
 

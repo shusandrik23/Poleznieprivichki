@@ -1,6 +1,6 @@
 {
-  "name": "Полезные привычки",
-  "short_name": "Привычки",
+  "name": "YouBoost",
+  "short_name": "YouBoost",
   "description": "Трекер полезных привычек: серии, цели, друзья и вызовы",
   "lang": "ru",
   "start_url": "./",

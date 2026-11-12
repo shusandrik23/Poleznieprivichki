@@ -590,7 +590,7 @@ function streakImage(name, n) {
   g.font = `600 56px ${font}`; g.fillStyle = '#ffe08a';
   g.fillText('Сможешь побить мой рекорд?', W / 2, 1130);
   g.font = `40px ${font}`; g.fillStyle = 'rgba(255,255,255,.85)';
-  g.fillText('Полезные привычки — трекер серий', W / 2, 1250);
+  g.fillText('YouBoost — трекер полезных привычек', W / 2, 1250);
   return (imageCache[key] = c.toDataURL('image/png'));
 }
 
@@ -768,11 +768,11 @@ function renderInviteBanner() {
   const inv = pendingInvite;
   let body = '';
   if (!social.ready) body = '<p class="small">Загружаем приглашение…</p>';
-  else if (!social.user) body = `<p><b>Вас пригласили в «Полезные привычки»!</b></p><p class="small">Войдите, чтобы принять приглашение.</p>
+  else if (!social.user) body = `<p><b>Вас пригласили в YouBoost!</b></p><p class="small">Войдите, чтобы принять приглашение.</p>
     <div class="signin"><button class="btn google" data-action="signin-google">${GOOGLE_SVG} Войти через Google</button>
     ${cloud.appleAvailable ? `<button class="btn apple" data-action="signin-apple">${APPLE_SVG} Войти через Apple</button>` : ''}</div>`;
   else if (social.profile === undefined) body = '<p class="small">Загружаем приглашение…</p>';
-  else if (!social.profile) { setHTML(el, `<p class="invite-note"><b>Вас пригласили в «Полезные привычки»!</b> Выберите ник — и сможете принять приглашение.</p>${nicknameForm()}`); return; }
+  else if (!social.profile) { setHTML(el, `<p class="invite-note"><b>Вас пригласили в YouBoost!</b> Выберите ник — и сможете принять приглашение.</p>${nicknameForm()}`); return; }
   else {
     if (inv.status === 'new') {
       inv.status = 'loading';

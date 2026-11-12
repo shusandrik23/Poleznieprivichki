@@ -1,4 +1,4 @@
-package com.poleznieprivychki.app;
+package com.youboost.app;
 
 import com.getcapacitor.BridgeActivity;
 

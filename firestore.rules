@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Правила доступа к данным «Полезных привычек».
+// Правила доступа к данным YouBoost.
 // Вставьте этот файл в консоли Firebase: Firestore Database → Rules → Publish.
 service cloud.firestore {
   match /databases/{db}/documents {

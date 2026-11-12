@@ -1,6 +1,6 @@
 {
-  "appId": "com.poleznieprivychki.app",
-  "appName": "Полезные привычки",
+  "appId": "com.youboost.app",
+  "appName": "YouBoost",
   "webDir": "www",
   "android": {
     "backgroundColor": "#f6f5f1"

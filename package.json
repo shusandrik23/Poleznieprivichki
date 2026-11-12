@@ -1,8 +1,8 @@
 {
-  "name": "poleznie-privychki",
+  "name": "youboost",
   "version": "1.0.0",
   "private": true,
-  "description": "Полезные привычки — трекер серий (веб + Android через Capacitor)",
+  "description": "YouBoost — трекер полезных привычек (веб + Android через Capacitor)",
   "type": "module",
   "scripts": {
     "build": "node scripts/build-web.mjs",
