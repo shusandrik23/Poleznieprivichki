@@ -11,6 +11,7 @@
     "apk": "npm run sync && cd android && ./gradlew assembleDebug"
   },
   "dependencies": {
+    "@capacitor-firebase/authentication": "8.5.2",
     "@capacitor/android": "8.5.3",
     "@capacitor/app": "8.1.2",
     "@capacitor/clipboard": "8.0.1",

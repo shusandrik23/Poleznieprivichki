@@ -77,13 +77,7 @@ npm run open:android  # открывает проект в Android Studio → Ru
 
 Что уже работает в приложении по-нативному: системное меню «Поделиться» (в том числе картинкой серии), WhatsApp, копирование, кнопка «Назад». Ссылки-приглашения ведут на сайт https://shusandrik23.github.io/Poleznieprivichki/.
 
-**Вход через Google в приложении** включается вместе с Firebase:
-
-1. В консоли Firebase: Project settings → Your apps → **Add app → Android**, пакет `com.youboost.app`. Добавить SHA-1 ключа подписи (для отладочной сборки: `cd android && ./gradlew signingReport`).
-2. Скачать `google-services.json` и положить в `android/app/`.
-3. `npm install @capacitor-firebase/authentication` и в `android/variables.gradle` добавить `rgcfaIncludeGoogle = true`; в `capacitor.config.json` — `"plugins": { "FirebaseAuthentication": { "skipNativeAuth": true, "providers": ["google.com"] } }`.
-
-Без `google-services.json` этот плагин роняет приложение при запуске, поэтому он пока не установлен.
+**Вход через Google в приложении** настроен: Android-приложение `com.youboost.app` зарегистрировано в Firebase, файл `android/app/google-services.json` лежит в проекте, тестовые сборки подписываются постоянным ключом `android/app/debug.keystore` (SHA-1 `4D:39:77:3A:C4:6E:AF:54:87:85:F5:32:26:5B:25:7C:AA:E8:72:11` добавлен в Firebase). Для релизной сборки в Google Play нужно будет добавить в Firebase и SHA-1 ключа Google Play (Play Console → App integrity).
 
 ## Путь в Google Play
 

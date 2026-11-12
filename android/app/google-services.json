@@ -1,0 +1,39 @@
+{
+  "project_info": {
+    "project_number": "842120280158",
+    "project_id": "poleznie-privichki",
+    "storage_bucket": "poleznie-privichki.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:842120280158:android:1534f8c7ca1209aa411ccf",
+        "android_client_info": {
+          "package_name": "com.youboost.app"
+        }
+      },
+      "oauth_client": [
+        {
+          "client_id": "842120280158-9rpd6ij67pf73nfkdi859kkkle6813bl.apps.googleusercontent.com",
+          "client_type": 3
+        }
+      ],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBRq_XdG-EtVbWuPY4fXrH1XCRTdB_wvpo"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": [
+            {
+              "client_id": "842120280158-9rpd6ij67pf73nfkdi859kkkle6813bl.apps.googleusercontent.com",
+              "client_type": 3
+            }
+          ]
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}
