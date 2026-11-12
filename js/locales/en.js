@@ -15,7 +15,7 @@ export default {
   'add.placeholder': 'Your own habit, e.g. "Morning stretch"',
   'add.button': 'Add',
   'catalog.summary': 'Pick from the list',
-  'habits.hint': 'Tap the circle to check off a habit for today. Use the days at the bottom of a card to fix past days. 🎯 sets a goal.',
+  'habits.hint': 'Tap the circle to check off a habit for today. Use the days at the bottom of a card to fix past days.',
   'quote.start': 'Start the day',
 
   'common.save': 'Save',
@@ -47,8 +47,8 @@ export default {
   'catalog.add': 'Add',
   'catalog.added': 'Already on your list',
 
-  'goal.set': 'Set a goal',
-  'goal.edit': 'Edit goal',
+  'goal.setBtn': '🎯 Set a goal',
+  'goal.editShort': 'edit',
   'goal.head': '🎯 Goal: <b>{n}</b> {days} in a row',
   'goal.reached': 'Goal reached! 🎉',
   'goal.progress': '{cur} / {goal} · {left} {days} to go',

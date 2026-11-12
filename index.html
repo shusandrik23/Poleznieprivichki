@@ -233,6 +233,15 @@
   .lang-switch button { border: 0; background: transparent; color: var(--muted); font-size: 13px; font-weight: 600; padding: 5px 10px; }
   .lang-switch button.active { background: var(--accent); color: #fff; }
   .panel .limit-card { margin: 10px 0 0; }
+  ul.habits { margin-bottom: 16px; }
+  .goal-btn {
+    grid-column: 1 / -1; justify-self: start; margin-top: 8px;
+    border: 1px solid var(--accent); background: var(--accent); color: #fff;
+    border-radius: 999px; padding: 6px 14px; font-size: 14px; font-weight: 600;
+    box-shadow: 0 1px 3px rgba(47, 158, 106, .35);
+  }
+  .goal-btn:hover { filter: brightness(1.05); }
+  .goal-edit-link { border: 0; background: none; color: var(--accent); font-weight: 600; font-size: 13px; padding: 0 0 0 6px; text-decoration: underline; }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -259,6 +268,8 @@
       <div class="progress-text" id="progressText"></div>
     </div>
 
+
+    <ul class="habits" id="list"></ul>
     <form class="add" id="addForm">
       <input id="newHabit" data-i18n-ph="add.placeholder" placeholder="Своя привычка, например «Зарядка»" maxlength="80" autocomplete="off">
       <button type="submit" data-i18n="add.button">Добавить</button>
@@ -268,8 +279,6 @@
       <summary data-i18n="catalog.summary">Выбрать из готового списка</summary>
       <div id="catalogBody"></div>
     </details>
-
-    <ul class="habits" id="list"></ul>
     <div class="card fact" id="fact"></div>
     <p class="hint" id="hint" data-i18n="habits.hint">Нажмите на кружок, чтобы отметить привычку за сегодня. Дни недели внизу карточки — чтобы исправить прошлые отметки. 🎯 — поставить цель.</p>
   </section>
