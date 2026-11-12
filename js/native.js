@@ -39,7 +39,9 @@ export function hasNativeGoogle() {
 
 export async function nativeGoogleIdToken() {
   const fa = await plugin('FirebaseAuthentication');
-  const res = await fa.signInWithGoogle();
+  // Классическое окно выбора аккаунта Google (Google Play services): на части телефонов
+  // новый Credential Manager не показывает окно и не отвечает.
+  const res = await fa.signInWithGoogle({ useCredentialManager: false });
   return res.credential?.idToken;
 }
 

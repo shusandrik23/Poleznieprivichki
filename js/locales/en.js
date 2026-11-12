@@ -274,7 +274,7 @@ export default {
   'err.generic': 'Something went wrong. Please try again.',
   'err.connect': 'Couldn’t connect to the server. Check your internet connection.',
   'err.signin': 'Couldn’t sign in with Google:',
-  'err.signinTimeout': 'no response from Google within a minute.',
+  'err.signinTimeout': 'no response from Google within 2 minutes.',
   'err.nativeSignin': 'Google sign-in isn’t available in the app yet.',
   'err.nick': 'Nickname: 3–20 characters — Latin letters, digits and "_".',
   'err.nickTaken': '@{nick} is already taken — choose another one.',

@@ -87,7 +87,7 @@ export async function signInGoogle() {
     try {
       idToken = await Promise.race([
         nativeGoogleIdToken(),
-        new Promise((_, reject) => setTimeout(() => reject(new Error(I.t('err.signinTimeout'))), 60000)),
+        new Promise((_, reject) => setTimeout(() => reject(new Error(I.t('err.signinTimeout'))), 120000)),
       ]);
     } catch (e) {
       // Показываем настоящую причину — по ней видно, что не так (отпечаток SHA-1, нет аккаунта и т. п.).
