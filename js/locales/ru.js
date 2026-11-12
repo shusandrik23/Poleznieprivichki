@@ -78,6 +78,7 @@ export default {
 
   'signin.google': 'Войти через Google',
   'signin.apple': 'Войти через Apple',
+  'signin.opening': 'Открываем вход через Google…',
   'signin.note': 'Ваши привычки сохранятся в аккаунте и будут доступны на всех устройствах. Другие люди видят только ваш ник и серии.',
   'signin.nativeSoon': 'Вход в приложении появится в следующей версии. А пока войти можно на сайте: shusandrik23.github.io/Poleznieprivichki',
   'nick.titleNew': 'Выберите ник',
@@ -236,6 +237,8 @@ export default {
 
   'err.generic': 'Что-то пошло не так. Попробуйте ещё раз.',
   'err.connect': 'Не удалось подключиться к серверу. Проверьте интернет.',
+  'err.signin': 'Не удалось войти через Google:',
+  'err.signinTimeout': 'нет ответа от Google за минуту.',
   'err.nativeSignin': 'Вход через Google в приложении пока недоступен.',
   'err.nick': 'Ник: 3–20 символов, латинские буквы, цифры и «_».',
   'err.nickTaken': 'Ник @{nick} уже занят, выберите другой.',

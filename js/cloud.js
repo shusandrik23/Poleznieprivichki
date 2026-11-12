@@ -83,8 +83,19 @@ export async function signInGoogle() {
   if (isNative) {
     // В Android-приложении всплывающие окна не работают — входим через системный выбор аккаунта Google.
     if (!hasNativeGoogle()) throw new Error(I.t('err.nativeSignin'));
-    const idToken = await nativeGoogleIdToken();
-    if (!idToken) return;
+    let idToken;
+    try {
+      idToken = await Promise.race([
+        nativeGoogleIdToken(),
+        new Promise((_, reject) => setTimeout(() => reject(new Error(I.t('err.signinTimeout'))), 60000)),
+      ]);
+    } catch (e) {
+      // Показываем настоящую причину — по ней видно, что не так (отпечаток SHA-1, нет аккаунта и т. п.).
+      const msg = e?.message || e?.code || String(e);
+      if (/cancel/i.test(msg)) return;
+      throw new Error(`${I.t('err.signin')} ${msg}`);
+    }
+    if (!idToken) throw new Error(`${I.t('err.signin')} no idToken`);
     await fb.signInWithCredential(auth, fb.GoogleAuthProvider.credential(idToken));
     return;
   }

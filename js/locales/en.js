@@ -78,6 +78,7 @@ export default {
 
   'signin.google': 'Sign in with Google',
   'signin.apple': 'Sign in with Apple',
+  'signin.opening': 'Opening Google sign-in…',
   'signin.note': 'Your habits are saved to your account and available on all your devices. Others see only your nickname and streaks.',
   'signin.nativeSoon': 'Signing in from the app is coming in the next version. For now you can sign in on the website: shusandrik23.github.io/Poleznieprivichki',
   'nick.titleNew': 'Choose a nickname',
@@ -235,6 +236,8 @@ export default {
 
   'err.generic': 'Something went wrong. Please try again.',
   'err.connect': 'Couldn’t connect to the server. Check your internet connection.',
+  'err.signin': 'Couldn’t sign in with Google:',
+  'err.signinTimeout': 'no response from Google within a minute.',
   'err.nativeSignin': 'Google sign-in isn’t available in the app yet.',
   'err.nick': 'Nickname: 3–20 characters — Latin letters, digits and "_".',
   'err.nickTaken': '@{nick} is already taken — choose another one.',

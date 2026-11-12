@@ -308,6 +308,7 @@ function signInCard(text) {
       <button class="btn google" data-action="signin-google">${GOOGLE_SVG} ${t('signin.google')}</button>
       ${cloud.appleAvailable ? `<button class="btn apple" data-action="signin-apple">${APPLE_SVG} ${t('signin.apple')}</button>` : ''}
     </div>
+    ${flashHtml('signin')}
     <p class="small">${t('signin.note')}</p>
   </div>`;
 }
@@ -787,7 +788,7 @@ function renderInviteBanner() {
   if (!social.ready) body = `<p class="small">${t('ib.loading')}</p>`;
   else if (!social.user) body = `<p><b>${t('ib.invited')}</b></p><p class="small">${t('ib.signinToAccept')}</p>
     <div class="signin"><button class="btn google" data-action="signin-google">${GOOGLE_SVG} ${t('signin.google')}</button>
-    ${cloud.appleAvailable ? `<button class="btn apple" data-action="signin-apple">${APPLE_SVG} ${t('signin.apple')}</button>` : ''}</div>`;
+    ${cloud.appleAvailable ? `<button class="btn apple" data-action="signin-apple">${APPLE_SVG} ${t('signin.apple')}</button>` : ''}</div>${flashHtml('signin')}`;
   else if (social.profile === undefined) body = `<p class="small">${t('ib.loading')}</p>`;
   else if (!social.profile) { setHTML(el, `<p class="invite-note"><b>${t('ib.invited')}</b> ${t('ib.chooseNick')}</p>${nicknameForm()}`); return; }
   else {
@@ -889,8 +890,8 @@ document.addEventListener('click', ev => {
     case 'limit-invite': flash.goal = null; editingGoal = null; goTab('friends'); setTimeout(() => document.querySelector('.invite-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50); break;
     case 'goal-edit': editingGoal = editingGoal === id ? null : id; flash.goal = null; render(); break;
     case 'goal-set': setGoal(id, el.dataset.days ? Number(el.dataset.days) : null); break;
-    case 'signin-google': run(null, cloud.signInGoogle); break;
-    case 'signin-apple': run(null, cloud.signInApple); break;
+    case 'signin-google': flash.signin = { text: t('signin.opening') }; render(); run('signin', cloud.signInGoogle); break;
+    case 'signin-apple': flash.signin = { text: t('signin.opening') }; render(); run('signin', cloud.signInApple); break;
     case 'signout': similar = null; run(null, cloud.signOut); break;
     case 'rename': renaming = true; flash.nickname = null; render(); break;
     case 'rename-cancel': renaming = false; render(); break;

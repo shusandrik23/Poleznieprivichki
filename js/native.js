@@ -1,7 +1,7 @@
 // Мост к Android-приложению (Capacitor). В браузере всё это просто не используется.
 
-// Мост Capacitor внедряется в страницу до запуска наших скриптов.
-export const isNative = !!window.Capacitor?.isNativePlatform?.();
+// Мост Capacitor внедряется в страницу до запуска наших скриптов (androidBridge — его канал связи с Android).
+export const isNative = !!(window.androidBridge || window.Capacitor?.isNativePlatform?.());
 
 // Публичный адрес приложения — для ссылок-приглашений из Android-версии.
 export const PUBLIC_URL = 'https://shusandrik23.github.io/Poleznieprivichki/';
