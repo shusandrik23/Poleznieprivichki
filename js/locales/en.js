@@ -145,7 +145,7 @@ export default {
   'reminder.body': 'Time to check off today’s habits 💪',
   'settings.notifications': '🔔 Notifications',
   'settings.notifyChallenges': 'Notify me when someone challenges me',
-  'settings.notifyNote': 'The notification arrives while the app is open or recently minimized.',
+  'settings.notifyNote': 'In the phone app, notifications about challenges and friend requests arrive even when it’s closed.',
   'notify.challenge': '{name} challenges you: {habit}',
   'settings.account': '👤 Account',
   'settings.signinFirst': 'To set your name and visibility, sign in on the Friends tab.',

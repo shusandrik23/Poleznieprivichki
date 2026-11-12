@@ -145,7 +145,7 @@ export default {
   'reminder.body': 'Пора отметить привычки за сегодня 💪',
   'settings.notifications': '🔔 Уведомления',
   'settings.notifyChallenges': 'Сообщать, когда мне бросают вызов',
-  'settings.notifyNote': 'Уведомление приходит, когда приложение открыто или недавно свёрнуто.',
+  'settings.notifyNote': 'В приложении на телефоне уведомления о вызовах и заявках в друзья приходят, даже когда оно закрыто.',
   'notify.challenge': '{name} бросает вам вызов: {habit}',
   'settings.account': '👤 Аккаунт',
   'settings.signinFirst': 'Чтобы настроить имя и видимость для других, войдите на вкладке «Друзья».',

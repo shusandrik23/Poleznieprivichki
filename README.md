@@ -78,6 +78,7 @@ https://shusandrik23.github.io/Poleznieprivichki/
 | `js/cloud.js` | Firebase: вход, синхронизация, друзья, вызовы |
 | `firebase-config.js` | Настройки вашего Firebase-проекта |
 | `firestore.rules` | Правила доступа к данным |
+| `functions/` | Серверные функции: пуш-уведомления о вызовах и заявках в друзья |
 | `js/native.js` | Мост к Android: вход, «Поделиться», «Назад» |
 | `android/`, `capacitor.config.json` | Android-приложение (Capacitor) |
 | `scripts/build-web.mjs` | Сборка веб-части в `www/` для Android |
@@ -93,6 +94,26 @@ https://shusandrik23.github.io/Poleznieprivichki/
 5. **Firestore Database → Rules:** замените текст содержимым файла `firestore.rules` → **Publish**.
 6. **Project settings (шестерёнка) → General → Your apps → значок `</>` (Web)** → зарегистрируйте приложение → скопируйте объект `firebaseConfig`.
 7. Вставьте его в `firebase-config.js` вместо `null`. Эти значения не секретные, их можно хранить в открытом репозитории.
+
+## Серверные функции и публикация (Firebase, тариф Blaze)
+
+В папке `functions/` — серверные функции: пуш-уведомления, когда пользователю бросают вызов или присылают заявку в друзья (Firebase Cloud Messaging). Публикуются вместе с правилами доступа одной командой.
+
+**Первый раз** — в Google Cloud Shell (https://shell.cloud.google.com, войти тем же Google-аккаунтом, что и в Firebase):
+
+```bash
+git clone -b claude/habit-tracker-app-9t4lh5 https://github.com/shusandrik23/Poleznieprivichki.git
+cd Poleznieprivichki/functions && npm install && cd ..
+npx -y firebase-tools@15.34.2 deploy --only functions,firestore:rules --project poleznie-privichki --force
+```
+
+**Обновить** (после изменений в функциях или правилах):
+
+```bash
+cd ~/Poleznieprivichki && git pull && (cd functions && npm install) && npx -y firebase-tools@15.34.2 deploy --only functions,firestore:rules --project poleznie-privichki --force
+```
+
+Если команда попросит войти — `npx -y firebase-tools@15.34.2 login --no-localhost` и следовать ссылке. При самом первом деплое Google может написать, что права ещё настраиваются (Eventarc), — подождать пару минут и повторить команду.
 
 ## Android-приложение (Capacitor)
 

@@ -11,3 +11,4 @@ android/app/release/
 *.keystore
 !android/app/debug.keystore
 *.jks
+functions/node_modules/

@@ -56,6 +56,11 @@ service cloud.firestore {
       allow delete: if signedIn() && uid == me();
     }
 
+    // Токены телефонов для пуш-уведомлений — только владельцу (серверная функция читает их в обход правил).
+    match /pushTokens/{uid} {
+      allow read, write: if signedIn() && uid == me();
+    }
+
     // Серии по привычкам и настоящее имя (если разрешено). Видны только самому пользователю и его друзьям.
     match /stats/{uid} {
       allow read: if signedIn() && (uid == me() || isFriend(uid, me()));

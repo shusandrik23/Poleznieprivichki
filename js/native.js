@@ -119,6 +119,34 @@ export async function notifyNow(id, title, body) {
   }
 }
 
+// ---------- Пуш-уведомления (Firebase Cloud Messaging) ----------
+// Возвращает токен телефона для пушей или null. handlers: { onReceived(n), onTap(data) }.
+let pushListening = false;
+export async function registerPush(handlers = {}) {
+  if (!isNative || !window.Capacitor?.PluginHeaders?.some?.(p => p.name === 'PushNotifications')) return null;
+  const push = plugin('PushNotifications');
+  let st = await withTimeout(push.checkPermissions(), 5000, 'pushPerm');
+  if (st.receive !== 'granted') st = await push.requestPermissions();
+  if (st.receive !== 'granted') return null;
+  try { await push.createChannel({ id: 'default', name: 'YouBoost', importance: 4 }); } catch (err) {}
+  const token = new Promise((resolve, reject) => {
+    push.addListener('registration', t => resolve(t.value));
+    push.addListener('registrationError', e => reject(new Error(e?.error || 'push registration failed')));
+  });
+  if (!pushListening) {
+    pushListening = true;
+    push.addListener('pushNotificationReceived', n => handlers.onReceived?.(n));
+    push.addListener('pushNotificationActionPerformed', a => handlers.onTap?.(a?.notification?.data || {}));
+  }
+  await push.register();
+  return withTimeout(token, 20000, 'pushToken');
+}
+
+export async function unregisterPush() {
+  if (!isNative || !window.Capacitor?.PluginHeaders?.some?.(p => p.name === 'PushNotifications')) return;
+  try { await withTimeout(plugin('PushNotifications').unregister(), 5000, 'pushUnreg'); } catch (err) {}
+}
+
 // Кнопка «Назад» на Android. handler возвращает true, если что-то закрыл.
 export async function onBackButton(handler) {
   if (!isNative) return;

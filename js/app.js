@@ -7,7 +7,7 @@ import { factFor } from './facts.js';
 import { quoteFor } from './quotes.js';
 import { PLANS, goalLimit } from './plans.js';
 import { prefs, savePrefs, applyTheme, theme, THEMES } from './prefs.js';
-import { isNative, hasNativeGoogle, appUrl, PUBLIC_URL, nativeShare, copyText, openExternal, onBackButton, onAppUrlOpen, scheduleDailyReminder, cancelDailyReminder, notifyNow } from './native.js';
+import { isNative, hasNativeGoogle, appUrl, PUBLIC_URL, nativeShare, copyText, openExternal, onBackButton, onAppUrlOpen, scheduleDailyReminder, cancelDailyReminder, notifyNow, registerPush, unregisterPush } from './native.js';
 import { tournamentsAround, tournamentStatus, canJoin, FLAG_LIMIT, tourProgress } from './tournaments.js';
 
 const STORAGE_KEY = 'habit-trainer-v1';
@@ -1045,7 +1045,33 @@ async function updateReminder() {
   render();
 }
 
+// ---------- Пуш-уведомления (Android) ----------
+let pushToken = null;
+let pushFor = null;   // uid, для которого телефон уже зарегистрирован
+
+async function syncPush() {
+  if (!isNative) return;
+  const uid = social.user?.uid;
+  const want = !!(uid && social.profile && prefs.notifyChallenges);
+  if (want && pushFor !== uid) {
+    pushFor = uid;
+    try {
+      pushToken = await registerPush({
+        // приложение открыто — показываем пуш как обычное уведомление
+        onReceived: n => notifyNow(Math.floor(Math.random() * 1e6) + 1000, n.title || 'YouBoost', n.body || '').catch(() => {}),
+        onTap: data => goTab(data.type === 'friend' ? 'friends' : 'challenges'),
+      });
+      if (pushToken) await cloud.savePushToken(pushToken, lang);
+    } catch (err) { console.error('push', err); pushFor = null; }
+  } else if (!want && pushFor) {
+    if (pushToken) await cloud.removePushToken(pushToken);
+    await unregisterPush();
+    pushFor = null; pushToken = null;
+  }
+}
+
 // Новые вызовы → уведомление (один раз на каждый вызов).
+// В Android-приложении с пушами их присылает сервер; здесь — запасной вариант (сайт или пуши недоступны).
 const SEEN_KEY = 'youboost-seen-challenges';
 function onIncomingChallenges(list) {
   let seen = [];
@@ -1053,7 +1079,7 @@ function onIncomingChallenges(list) {
   const fresh = list.filter(c => !seen.includes(c.id));
   if (!fresh.length) return;
   try { localStorage.setItem(SEEN_KEY, JSON.stringify([...seen, ...fresh.map(c => c.id)].slice(-200))); } catch (err) {}
-  if (!prefs.notifyChallenges) return;
+  if (!prefs.notifyChallenges || pushToken) return;
   for (const ch of fresh) {
     const from = '@' + (ch.names?.[ch.participants[0]] || '');
     notifyNow(100 + (Math.abs([...ch.id].reduce((a, c) => a * 31 + c.charCodeAt(0) | 0, 0)) % 100000), 'YouBoost',
@@ -1159,6 +1185,7 @@ function goTab(name) {
 function switchLang(code) {
   setLang(code);
   if (prefs.reminder.on) updateReminder();   // текст напоминания — на новом языке
+  if (pushToken) cloud.savePushToken(pushToken, code);   // пуши — на новом языке
   applyStaticTexts();
   if (!$('quote').hidden) fillQuote();
   render();
@@ -1298,6 +1325,7 @@ document.addEventListener('change', ev => {
   }
   if (ev.target.id === 'notifyChallenges') {
     savePrefs({ notifyChallenges: ev.target.checked });
+    syncPush();
     // в браузере просим разрешение на уведомления
     if (ev.target.checked && !isNative && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
     return;
@@ -1428,7 +1456,7 @@ dailyVisit();
 render();
 
 cloud.initCloud({
-  onChange: render,
+  onChange: () => { render(); syncPush(); },
   onIncomingChallenges,
   // отметка в турнире записана — обновляем таблицу
   onTournament: id => { const tr = tournamentsAround(todayNumber()).find(x => x.id === id); if (tr) loadTour(tr); },

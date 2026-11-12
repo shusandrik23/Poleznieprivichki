@@ -318,6 +318,19 @@ async function syncChallenges() {
   }
 }
 
+// ---------- Пуш-уведомления: токены телефонов ----------
+// pushTokens/{uid} = { tokens: [...], lang } — читает серверная функция, чтобы отправить пуш.
+
+export async function savePushToken(token, lang) {
+  if (!social.user || !token) return;
+  await fb.setDoc(fb.doc(db, 'pushTokens', social.user.uid), { tokens: fb.arrayUnion(token), lang }, { merge: true });
+}
+
+export async function removePushToken(token) {
+  if (!social.user || !token) return;
+  try { await fb.updateDoc(fb.doc(db, 'pushTokens', social.user.uid), { tokens: fb.arrayRemove(token) }); } catch (e) {}
+}
+
 // ---------- Профиль и настройки ----------
 
 export const NICK_RE = /^[a-z0-9_]{3,20}$/;
@@ -693,7 +706,7 @@ export async function deleteAccount() {
     } catch (e) {}
   }
   if (social.profile) batch.delete(fb.doc(db, 'usernames', social.profile.nickname));
-  for (const col of ['profiles', 'stats', 'discover', 'users', 'referrals']) batch.delete(fb.doc(db, col, uid));
+  for (const col of ['profiles', 'stats', 'discover', 'users', 'referrals', 'pushTokens']) batch.delete(fb.doc(db, col, uid));
   stopListeners();
   await batch.commit();
   try {
