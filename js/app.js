@@ -2,11 +2,13 @@ import { dateKey, streaks, liveStreak, habitKey, challengeProgress, todayNumber,
 import * as cloud from './cloud.js';
 import { social } from './cloud.js';
 import { factFor } from './facts.js';
+import { quoteFor } from './quotes.js';
 import { tournamentsAround, tournamentStatus, canJoin } from './tournaments.js';
 
 const STORAGE_KEY = 'habit-trainer-v1';
 const TAB_KEY = 'habit-trainer-tab';
 const INVITE_KEY = 'habit-trainer-invite';
+const QUOTE_KEY = 'habit-trainer-quote-day';
 
 const CATALOG = [
   { title: 'Здоровье', items: ['💧 Выпить 2 литра воды', '🏃 Зарядка 10 минут', '🚶 Пройти 8 000 шагов', '😴 Лечь спать до 23:00', '🥗 Съесть овощи или фрукты', '🧘 Растяжка', '🚿 Контрастный душ'] },
@@ -999,7 +1001,26 @@ document.addEventListener('submit', ev => {
 // Перерисовываем при смене дня, если вкладка открыта через полночь.
 let lastKey = dateKey(new Date());
 setInterval(() => { const k = dateKey(new Date()); if (k !== lastKey) { lastKey = k; factOffset = 0; render(); } }, 60000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { render(); showQuote(); } });
+
+// Цитата дня — при первом запуске за день.
+function showQuote(force = false) {
+  const day = todayNumber();
+  let shown = null;
+  try { shown = localStorage.getItem(QUOTE_KEY); } catch (err) {}
+  if (!force && shown === String(day)) return;
+  const q = quoteFor(day);
+  $('quoteText').textContent = `«${q.text}»`;
+  $('quoteAuthor').textContent = '— ' + q.author;
+  $('quote').hidden = false;
+  $('quoteClose').focus();
+  try { localStorage.setItem(QUOTE_KEY, String(day)); } catch (err) {}
+}
+function hideQuote() { $('quote').hidden = true; }
+$('quoteClose').addEventListener('click', hideQuote);
+$('quote').addEventListener('click', ev => { if (ev.target.id === 'quote') hideQuote(); });
+document.addEventListener('keydown', ev => { if (ev.key === 'Escape' && !$('quote').hidden) hideQuote(); });
+showQuote();
 
 // Пока привычек нет — сразу показываем готовый список.
 $('catalog').open = !state.habits.length;

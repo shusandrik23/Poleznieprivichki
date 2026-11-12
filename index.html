@@ -208,6 +208,18 @@
   h2.section.first { margin-top: 8px; }
   .inline-select { width: auto !important; padding: 6px 10px !important; }
   .person .chips { margin-top: 6px; }
+  .quote-overlay {
+    position: fixed; inset: 0; z-index: 50; display: grid; place-items: center; padding: 24px 16px;
+    background: linear-gradient(160deg, #1f8f5f, #0f5c3c); color: #fff; animation: fadein .3s ease;
+  }
+  .quote-card { max-width: 480px; text-align: center; }
+  .quote-mark { font: 700 96px/0.6 Georgia, serif; opacity: .35; margin-bottom: 8px; }
+  .quote-text { font-size: 24px; line-height: 1.4; font-weight: 600; margin: 0 0 16px; }
+  .quote-author { font-size: 17px; opacity: .85; margin: 0 0 36px; }
+  .quote-btn { background: #fff !important; color: #0f5c3c !important; border-color: #fff !important; padding: 12px 28px; font-size: 17px; }
+  .quote-btn:focus { outline: none; }
+  .quote-btn:focus-visible { outline: 3px solid rgba(255,255,255,.6); outline-offset: 3px; }
+  @keyframes fadein { from { opacity: 0; } to { opacity: 1; } }
   [hidden] { display: none !important; }
 </style>
 </head>
@@ -252,6 +264,14 @@
   <section class="view" id="view-friends" hidden></section>
   <section class="view" id="view-challenges" hidden></section>
 </main>
+<div class="quote-overlay" id="quote" hidden role="dialog" aria-modal="true" aria-labelledby="quoteText">
+  <div class="quote-card">
+    <div class="quote-mark">“</div>
+    <p class="quote-text" id="quoteText"></p>
+    <p class="quote-author" id="quoteAuthor"></p>
+    <button class="btn primary quote-btn" id="quoteClose">Начать день</button>
+  </div>
+</div>
 <script type="module" src="js/app.js"></script>
 </body>
 </html>
