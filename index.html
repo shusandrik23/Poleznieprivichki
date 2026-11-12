@@ -74,11 +74,54 @@
   .stats { display: flex; flex-wrap: wrap; gap: 2px 16px; font-size: 14px; color: var(--muted); }
   .stats span { white-space: nowrap; }
   .stats b { color: var(--text); font-variant-numeric: tabular-nums; }
-  .delete {
-    grid-row: span 2; border: 0; background: transparent; color: var(--muted);
-    width: 32px; height: 32px; border-radius: 8px; font-size: 20px; line-height: 1;
+  .actions { grid-row: span 2; display: flex; gap: 2px; }
+  .icon-btn {
+    border: 0; background: transparent; color: var(--muted);
+    width: 34px; height: 34px; border-radius: 8px; font-size: 18px; line-height: 1;
+    display: grid; place-items: center;
   }
-  .delete:hover { color: var(--danger); background: var(--bg); }
+  .icon-btn:hover, .icon-btn.active { background: var(--bg); color: var(--text); }
+  .icon-btn.delete { font-size: 22px; }
+  .icon-btn.delete:hover { color: var(--danger); }
+  .icon-btn svg { width: 18px; height: 18px; }
+
+  .goal { grid-column: 1 / -1; margin-top: 8px; font-size: 14px; }
+  .goal-head { display: flex; justify-content: space-between; gap: 8px; color: var(--muted); }
+  .goal-head b { color: var(--text); }
+  .goal-bar { height: 6px; border-radius: 3px; background: var(--line); overflow: hidden; margin-top: 4px; }
+  .goal-fill { height: 100%; background: var(--accent); }
+  .goal.reached .goal-head { color: var(--accent); font-weight: 600; }
+
+  .goal-editor {
+    grid-column: 1 / -1; margin-top: 10px; padding: 12px; border-radius: 10px;
+    background: var(--bg); font-size: 14px;
+  }
+  .goal-editor p { margin: 0 0 8px; color: var(--muted); }
+  .presets, .custom { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+  .custom { margin-top: 8px; }
+  .chip {
+    border: 1px solid var(--line); background: var(--card); color: var(--text);
+    border-radius: 999px; padding: 6px 12px; font-size: 14px;
+  }
+  .chip:hover { border-color: var(--accent); }
+  .chip.selected { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .custom input {
+    width: 80px; padding: 6px 10px; font: inherit; color: inherit;
+    background: var(--card); border: 1px solid var(--line); border-radius: 8px;
+  }
+  .link-btn { border: 0; background: none; color: var(--muted); text-decoration: underline; padding: 6px 4px; font-size: 14px; }
+
+  details.catalog {
+    background: var(--card); border: 1px solid var(--line); border-radius: var(--radius);
+    margin-bottom: 20px; padding: 0 14px;
+  }
+  details.catalog summary { cursor: pointer; padding: 12px 0; font-weight: 600; }
+  details.catalog[open] summary { border-bottom: 1px solid var(--line); margin-bottom: 4px; }
+  .cat { padding: 8px 0 12px; }
+  .cat h3 { margin: 0 0 8px; font-size: 13px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .cat .chips { display: flex; flex-wrap: wrap; gap: 6px; }
+  .chip.added { opacity: .45; cursor: default; }
+  .chip.added:hover { border-color: var(--line); }
   .week { grid-column: 1 / -1; display: flex; gap: 6px; margin-top: 10px; }
   .day {
     flex: 1; border: 1px solid var(--line); background: transparent; color: var(--muted);
@@ -109,8 +152,13 @@
     <button type="submit">Добавить</button>
   </form>
 
+  <details class="catalog" id="catalog">
+    <summary>Выбрать из готового списка</summary>
+    <div id="catalogBody"></div>
+  </details>
+
   <ul class="habits" id="list"></ul>
-  <p class="hint" id="hint">Нажмите на кружок, чтобы отметить привычку за сегодня. Дни недели внизу карточки — чтобы исправить прошлые отметки.</p>
+  <p class="hint" id="hint">Нажмите на кружок, чтобы отметить привычку за сегодня. Дни недели внизу карточки — чтобы исправить прошлые отметки. 🎯 — поставить цель.</p>
 </main>
 
 <script>
@@ -167,6 +215,94 @@ function plural(n) {
   return 'дней';
 }
 
+const CATALOG = [
+  { title: 'Здоровье', items: ['💧 Выпить 2 литра воды', '🏃 Зарядка 10 минут', '🚶 Пройти 8 000 шагов', '😴 Лечь спать до 23:00', '🥗 Съесть овощи или фрукты', '🧘 Растяжка', '🚿 Контрастный душ'] },
+  { title: 'Ум и развитие', items: ['📖 Читать 20 минут', '🗣️ Учить иностранный язык 15 минут', '🎧 Послушать подкаст или лекцию', '✍️ Вести дневник', '🧠 Решить задачу или головоломку'] },
+  { title: 'Спокойствие', items: ['🧘 Медитация 10 минут', '🙏 Записать 3 вещи, за которые благодарен', '🌳 Прогулка на свежем воздухе', '📵 Час без телефона перед сном'] },
+  { title: 'Продуктивность', items: ['📝 Составить план на день', '🧹 Убрать рабочее место', '⏰ Встать без «ещё 5 минут»', '💰 Записать расходы'] },
+  { title: 'Отказ от вредного', items: ['🚭 Не курить', '🍬 Без сладкого', '🍺 Без алкоголя', '📱 Не больше часа соцсетей'] },
+  { title: 'Близкие', items: ['📞 Позвонить родным', '💬 Сделать комплимент', '🤝 Помочь кому-нибудь'] },
+];
+const GOAL_PRESETS = [7, 21, 30, 66, 100];
+let editingGoal = null; // id привычки, у которой открыт редактор цели
+
+function renderCatalog() {
+  const added = new Set(state.habits.map(h => h.name.toLowerCase()));
+  const body = document.getElementById('catalogBody');
+  body.innerHTML = '';
+  for (const cat of CATALOG) {
+    const sec = document.createElement('div');
+    sec.className = 'cat';
+    sec.innerHTML = `<h3>${cat.title}</h3>`;
+    const chips = document.createElement('div');
+    chips.className = 'chips';
+    for (const item of cat.items) {
+      const b = document.createElement('button');
+      const isAdded = added.has(item.toLowerCase());
+      b.className = 'chip' + (isAdded ? ' added' : '');
+      b.textContent = isAdded ? item + ' ✓' : '+ ' + item;
+      b.disabled = isAdded;
+      b.title = isAdded ? 'Уже в вашем списке' : 'Добавить';
+      b.onclick = () => addHabit(item);
+      chips.appendChild(b);
+    }
+    sec.appendChild(chips);
+    body.appendChild(sec);
+  }
+}
+
+function setGoal(id, days) {
+  const h = state.habits.find(x => x.id === id);
+  if (!h) return;
+  if (days) h.goal = days; else delete h.goal;
+  editingGoal = null;
+  save(); render();
+}
+
+function goalBlock(h, current) {
+  const el = document.createElement('div');
+  const reached = current >= h.goal;
+  el.className = 'goal' + (reached ? ' reached' : '');
+  const pct = Math.min(100, current / h.goal * 100);
+  const left = h.goal - current;
+  el.innerHTML = `<div class="goal-head"><span>🎯 Цель: <b>${h.goal}</b> ${plural(h.goal)} подряд</span>` +
+    `<span>${reached ? 'Цель достигнута! 🎉' : `${current} / ${h.goal} · осталось ${left} ${plural(left)}`}</span></div>` +
+    `<div class="goal-bar"><div class="goal-fill" style="width:${pct}%"></div></div>`;
+  return el;
+}
+
+function goalEditor(h) {
+  const el = document.createElement('div');
+  el.className = 'goal-editor';
+  el.innerHTML = '<p>Сколько дней подряд вы хотите выполнять эту привычку?</p>';
+  const presets = document.createElement('div');
+  presets.className = 'presets';
+  for (const n of GOAL_PRESETS) {
+    const b = document.createElement('button');
+    b.className = 'chip' + (h.goal === n ? ' selected' : '');
+    b.textContent = `${n} ${plural(n)}`;
+    b.onclick = () => setGoal(h.id, n);
+    presets.appendChild(b);
+  }
+  const custom = document.createElement('form');
+  custom.className = 'custom';
+  custom.innerHTML = '<span>Своё:</span><input type="number" min="1" max="3650" inputmode="numeric" placeholder="дней">' +
+    '<button class="chip" type="submit">Сохранить</button>' +
+    (h.goal ? '<button class="link-btn" type="button" data-remove>Убрать цель</button>' : '');
+  const input = custom.querySelector('input');
+  if (h.goal && !GOAL_PRESETS.includes(h.goal)) input.value = h.goal;
+  custom.onsubmit = e => {
+    e.preventDefault();
+    const n = Math.round(Number(input.value));
+    if (n >= 1 && n <= 3650) setGoal(h.id, n); else input.focus();
+  };
+  const rm = custom.querySelector('[data-remove]');
+  if (rm) rm.onclick = () => setGoal(h.id, null);
+  el.append(presets, custom);
+  return el;
+}
+
+const TARGET_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="5"/><circle cx="12" cy="12" r="1.2" fill="currentColor"/></svg>';
 const CHECK_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg>';
 
 function render() {
@@ -207,11 +343,21 @@ function render() {
     name.className = 'name';
     name.textContent = h.name;
 
+    const actions = document.createElement('div');
+    actions.className = 'actions';
+    const goalBtn = document.createElement('button');
+    goalBtn.className = 'icon-btn' + (editingGoal === h.id ? ' active' : '');
+    goalBtn.innerHTML = TARGET_SVG;
+    goalBtn.title = h.goal ? 'Изменить цель' : 'Поставить цель';
+    goalBtn.setAttribute('aria-label', goalBtn.title);
+    goalBtn.onclick = () => { editingGoal = editingGoal === h.id ? null : h.id; render(); };
     const del = document.createElement('button');
-    del.className = 'delete';
+    del.className = 'icon-btn delete';
     del.textContent = '×';
     del.title = 'Удалить привычку';
+    del.setAttribute('aria-label', del.title);
     del.onclick = () => removeHabit(h.id);
+    actions.append(goalBtn, del);
 
     const stats = document.createElement('div');
     stats.className = 'stats';
@@ -229,7 +375,10 @@ function render() {
       weekEl.appendChild(b);
     }
 
-    li.append(check, name, del, stats, weekEl);
+    li.append(check, name, actions, stats);
+    if (h.goal) li.appendChild(goalBlock(h, current));
+    if (editingGoal === h.id) li.appendChild(goalEditor(h));
+    li.appendChild(weekEl);
     list.appendChild(li);
   }
 
@@ -239,6 +388,7 @@ function render() {
     ? `Сегодня выполнено ${doneCount} из ${total}` + (doneCount === total ? ' — отличный день! 🎉' : '')
     : '';
   document.getElementById('hint').hidden = !total;
+  renderCatalog();
 }
 
 function toggle(id, key) {
@@ -255,14 +405,22 @@ function removeHabit(id) {
   save(); render();
 }
 
+function addHabit(name) {
+  name = name.trim();
+  if (!name) return false;
+  if (state.habits.some(h => h.name.toLowerCase() === name.toLowerCase())) {
+    alert(`Привычка «${name}» уже есть в списке.`);
+    return false;
+  }
+  state.habits.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, done: {} });
+  save(); render();
+  return true;
+}
+
 document.getElementById('addForm').addEventListener('submit', e => {
   e.preventDefault();
   const input = document.getElementById('newHabit');
-  const name = input.value.trim();
-  if (!name) return;
-  state.habits.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2, 6), name, done: {} });
-  input.value = '';
-  save(); render();
+  if (addHabit(input.value)) input.value = '';
 });
 
 // Перерисовываем при смене дня, если вкладка открыта через полночь.
@@ -270,6 +428,8 @@ let lastKey = dateKey(new Date());
 setInterval(() => { const k = dateKey(new Date()); if (k !== lastKey) { lastKey = k; render(); } }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 
+// Пока привычек нет — сразу показываем готовый список.
+document.getElementById('catalog').open = !state.habits.length;
 render();
 </script>
 </body>
