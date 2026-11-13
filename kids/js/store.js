@@ -8,6 +8,7 @@
 //   kidsUsers/{uid}                  — в какой семье пользователь
 import { firebaseConfig } from '../firebase-config.js';
 import { newId, makeCode } from './logic.js';
+import * as F from './friends.js';
 import { isNative, hasNativeGoogle, nativeGoogleIdToken, nativeSignOut } from './native.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/10.14.1';
@@ -33,6 +34,7 @@ export const S = {
   members: [],      // для родителя: подключённые устройства и родители
   error: null,
   unlinked: false,  // устройство ребёнка отключили
+  friendships: {},  // дружбы детей семьи с детьми из других семей (friends.js)
   synced: false,    // данные семьи загружены (в облаке — пришёл первый ответ сервера)
 };
 
@@ -148,6 +150,7 @@ function listen() {
     gotKids = true; markSynced();
     changed();
   }, onErr));
+  unsubs.push(F.listenFriendships({ fb, db }, fid, map => { S.friendships = map; changed(); }, e => console.error(e)));
   // Своё членство: если родитель отключил устройство (или семью удалили) — сразу выходим.
   // Уже открытые подписки Firestore сами об этом не узнают, пока не изменятся их документы.
   unsubs.push(fb.onSnapshot(fb.doc(db, 'kidsFamilies', fid, 'members', S.user.uid), snap => {
@@ -191,6 +194,9 @@ export async function addKid(data) {
 }
 
 export async function removeKid(id) {
+  if (S.mode === 'cloud') {
+    for (const fr of Object.values(S.friendships).filter(f => F.involves(f, id))) await F.removeFriendship({ fb, db }, fr.id).catch(() => {});
+  }
   delete S.kids[id];
   changed();
   if (S.mode === 'local') return persistLocal();
@@ -336,7 +342,7 @@ export async function removeMember(uid) {
 
 function resetDevice(clearLocal = true) {
   stopListening();
-  Object.assign(S, { mode: null, role: null, fid: null, family: null, kids: {}, kidId: null, members: [], synced: false });
+  Object.assign(S, { mode: null, role: null, fid: null, family: null, kids: {}, kidId: null, members: [], friendships: {}, synced: false });
   try {
     localStorage.removeItem(DEVICE_KEY);
     if (clearLocal) localStorage.removeItem(LOCAL_KEY);
@@ -364,6 +370,7 @@ export async function deleteFamily() {
   if (S.mode === 'local') { resetDevice(true); changed(); return; }
   if (S.family?.owner !== S.user?.uid) throw new Error('not-owner');
   const fid = S.fid, uid = S.user.uid;
+  for (const fr of Object.values(S.friendships)) await F.removeFriendship({ fb, db }, fr.id).catch(() => {});
   stopListening();
   const kids = await fb.getDocs(fb.collection(db, 'kidsFamilies', fid, 'kids'));
   for (const d of kids.docs) await fb.deleteDoc(d.ref);
@@ -383,3 +390,12 @@ export async function deleteFamily() {
 }
 
 export const isOwner = () => S.mode === 'local' || S.family?.owner === S.user?.uid;
+
+// ---------- Друзья ----------
+const H = () => ({ fb, db });
+export const friendInvite = (kidId, via) => F.createInvite(H(), { fid: S.fid, kidId, via, uid: S.user.uid, card: F.kidCard(S.kids[kidId], S.family) });
+export const friendGetInvite = code => F.getInvite(H(), code);
+export const friendAccept = (inv, kidId) => F.acceptInvite(H(), inv, { fidB: S.fid, kidB: kidId, cardB: F.kidCard(S.kids[kidId], S.family), asParent: S.role === 'parent' });
+export const friendUpdate = (pair, patch) => F.updateFriendship(H(), pair, patch);
+export const friendRemove = pair => F.removeFriendship(H(), pair);
+export const friendRefreshCards = () => { if (S.mode === 'cloud' && S.synced) F.refreshCards(H(), S.friendships, S.kids, S.family); };

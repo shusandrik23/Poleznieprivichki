@@ -158,7 +158,7 @@
     position: fixed; left: 0; right: 0; bottom: 0; z-index: 10; display: flex; justify-content: center;
     background: var(--card); box-shadow: 0 -4px 20px rgba(43, 35, 64, .08); padding: 6px 6px calc(6px + env(safe-area-inset-bottom));
   }
-  .bottom-nav button { flex: 1; max-width: 130px; border: 0; background: none; padding: 6px 2px; border-radius: 14px; font-size: 12px; font-weight: 800; color: var(--muted); position: relative; display: grid; justify-items: center; gap: 2px; }
+  .bottom-nav button { flex: 1; min-width: 0; max-width: 130px; border: 0; background: none; padding: 6px 2px; border-radius: 14px; font-size: 12px; font-weight: 800; color: var(--muted); position: relative; display: grid; justify-items: center; gap: 2px; }
   .bottom-nav .ic { font-size: 22px; line-height: 1.1; filter: grayscale(.6); opacity: .8; }
   .bottom-nav button.active { color: var(--text); background: var(--accent-soft); }
   .bottom-nav button.active .ic { filter: none; opacity: 1; }
@@ -279,6 +279,11 @@
   .s-title { font-weight: 900; font-size: 14px; }
   .s-desc { font-size: 12px; color: var(--muted); }
 
+  .invite-box h2 { margin-bottom: 4px; }
+  .friend-card { border-left: 6px solid var(--kc); }
+  .fch { margin-top: 12px; padding: 12px; border-radius: 16px; background: var(--bg); font-size: 14px; }
+  .fch.incoming { background: var(--accent-soft); }
+  .fch .board { margin: 8px 0; }
   .ch-card .ch-title { font-weight: 900; font-size: 18px; }
   .ch-card.finished { opacity: .85; }
   .board { display: grid; gap: 6px; margin: 12px 0; }

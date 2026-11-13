@@ -59,3 +59,26 @@ export function onBackButton(handler) {
   if (!isNative || !hasPlugin('App')) return;
   plugin('App').addListener('backButton', () => { if (!handler()) plugin('App').minimizeApp(); });
 }
+
+// Выбор одного контакта из телефонной книги (без доступа ко всем контактам).
+// Android: своё окно выбора (плагин ContactPicker в android/), браузер Chrome на Android: Contact Picker API.
+// Номер никуда не отправляется — только чтобы открыть SMS или WhatsApp с приглашением.
+export const canPickContact = () => (isNative && hasPlugin('ContactPicker')) || (!isNative && 'contacts' in navigator && 'select' in navigator.contacts);
+export async function pickContact() {
+  if (isNative) {
+    const r = await plugin('ContactPicker').pick();
+    return r?.cancelled || !r?.phone ? null : { name: r.name || '', phone: r.phone };
+  }
+  const list = await navigator.contacts.select(['name', 'tel'], { multiple: false });
+  const c = list?.[0];
+  return c?.tel?.[0] ? { name: c.name?.[0] || '', phone: c.tel[0] } : null;
+}
+export function openSms(phone, text) {
+  const num = String(phone).replace(/[^\d+]/g, '');
+  location.href = `sms:${num}?body=${encodeURIComponent(text)}`;
+}
+export function openWhatsApp(phone, text) {
+  const num = String(phone).replace(/\D/g, '');
+  const url = `https://wa.me/${num}?text=${encodeURIComponent(text)}`;
+  if (isNative) location.href = url; else window.open(url, '_blank', 'noopener');
+}

@@ -1,8 +1,10 @@
 // Интерфейс YouBoost Kids: экраны родителя и ребёнка.
-import { S, initStore, kidsList, updateFamily, updateKid, addKid, removeKid, setupLocal, parentSignIn, joinWithCode, parentJoin, createCode, removeMember, leaveDevice, deleteFamily, isOwner } from './store.js';
+import { S, initStore, kidsList, updateFamily, updateKid, addKid, removeKid, setupLocal, parentSignIn, joinWithCode, parentJoin, createCode, removeMember, leaveDevice, deleteFamily, isOwner, friendInvite, friendGetInvite, friendAccept, friendUpdate, friendRemove, friendRefreshCards } from './store.js';
+import * as F from './friends.js';
 import * as G from './logic.js';
 import { t, pw, lang, setLang, LANGS, L, raw } from './i18n.js';
 import { CATEGORIES, HABITS, REWARDS, HABIT_EMOJI, REWARD_EMOJI, AVATARS, COLORS, starterFor } from './catalog.js';
+import { canPickContact, pickContact, openSms, openWhatsApp } from './native.js';
 import { isNative, hasNativeGoogle, PUBLIC_URL, shareText, copyText, scheduleDailyReminder, cancelDailyReminder, canRemind, onBackButton } from './native.js';
 
 const appEl = document.getElementById('app');
@@ -133,6 +135,20 @@ function render() {
   restoreInputs(appEl, k);
   document.body.dataset.screen = screenName();
   checkCelebrations();
+  checkFriendLink();
+  maybeRefreshCards();
+  autoJoin();
+}
+
+// Ссылка от родителя (?join=КОД): подключаемся сами, без ввода кода.
+function autoJoin() {
+  if (!ui.joinCode || ui.autoJoined || !S.ready || !S.cloudReady || S.mode || ui.busy) return;
+  ui.autoJoined = true;
+  const code = ui.joinCode;
+  setTimeout(() => busy(async () => {
+    await joinWithCode(code, navigator.userAgent.includes('Android') ? 'Android' : (navigator.platform || ''));
+    prefs.ktab = 'today'; savePrefs();
+  }), 0);
 }
 function renderModal(animate = false) {
   const k = keepInputs(modalEl);
@@ -194,7 +210,7 @@ function welcome() {
       <div class="card"><h2>${child ? t('welcome.childTitle') : t('welcome.haveCode')}</h2>
         ${child ? `<p class="muted">${t('welcome.childText')}</p>` : `<p class="muted">${t('err.need-google')}</p>`}
         <form data-form="${child ? 'joinChild' : 'joinParent'}" class="stack">
-          <input id="code" class="code-input" maxlength="8" autocomplete="off" autocapitalize="characters" placeholder="${t('welcome.codePh')}">
+          <input id="code" class="code-input" maxlength="8" autocomplete="off" autocapitalize="characters" placeholder="${t('welcome.codePh')}" value="${child ? e(ui.joinCode || '') : ''}">
           <button class="btn big primary" ${ui.busy || !S.cloudReady ? 'disabled' : ''}>${child ? t('welcome.connect') : GOOGLE_SVG + ' ' + t('welcome.connect')}</button>
         </form>
       </div>${msgLine()}${offline}
@@ -202,6 +218,7 @@ function welcome() {
   }
   return `<main class="narrow">${head}
     ${S.unlinked ? `<p class="msg error">${t('welcome.unlinked')}</p>` : ''}
+    ${pendingFriendCode() ? `<p class="msg">👫 ${t('fr.invitedFirst')}</p>` : ''}
     <div class="card center"><h2>${t('welcome.title')}</h2><p class="muted">${t('welcome.text')}</p>
       <div class="stack">
         <button class="btn big primary" data-act="welcome" data-step="parent">${t('welcome.parent')}</button>
@@ -268,10 +285,82 @@ function kidView(kid, { locked, device }) {
   if (tab === 'rewards') body = kidRewards(kid, bal);
   else if (tab === 'stickers') body = kidStickers(kid);
   else if (tab === 'challenges') body = kidChallenges(kid);
+  else if (tab === 'friends') body = kidFriends(kid);
   else body = kidToday(kid);
-  const tabs = [['today', '🏠', t('ktab.today')], ['rewards', '🎁', t('ktab.rewards')], ['stickers', '🏅', t('ktab.stickers')], ['challenges', '🏆', t('ktab.challenges')]];
+  const tabs = [['today', '🏠', t('ktab.today')], ['rewards', '🎁', t('ktab.rewards')], ['stickers', '🏅', t('ktab.stickers')], ['challenges', '🏆', t('ktab.challenges')], ['friends', '👫', t('ktab.friends')]];
   return `${top}<main class="kid-main">${body}</main>
-    <nav class="bottom-nav kid">${tabs.map(([id, ic, label]) => `<button class="${tab === id ? 'active' : ''}" data-act="ktab" data-tab="${id}"><span class="ic">${ic}</span>${label}${id === 'challenges' && activeChallengesFor('k:' + kid.id) ? '<i class="dot-badge"></i>' : ''}</button>`).join('')}</nav>`;
+    <nav class="bottom-nav kid">${tabs.map(([id, ic, label]) => `<button class="${tab === id ? 'active' : ''}" data-act="ktab" data-tab="${id}"><span class="ic">${ic}</span>${label}${(id === 'challenges' && activeChallengesFor('k:' + kid.id)) || (id === 'friends' && friendsAttention(kid)) ? '<i class="dot-badge"></i>' : ''}</button>`).join('')}</nav>`;
+}
+
+// ---------- Друзья (дети из других семей) ----------
+function myFriendships(kid) { return Object.values(S.friendships || {}).filter(fr => F.involves(fr, kid.id)); }
+function friendsAttention(kid) {
+  const today = G.today();
+  return myFriendships(kid).some(fr => F.isActive(fr) && F.challenges(fr).some(c =>
+    (c.status === 'pending' && c.from !== kid.id) || (F.chState(c) === 'active' && !fr.m?.[kid.id]?.[c.id]?.[today])));
+}
+
+function friendAvatar(card) {
+  return `<span class="avatar" style="background:${e(card.color || '#ff8a3d')}">${e(card.avatar || '🙂')}</span>`;
+}
+
+function friendChallengeHtml(fr, kid, c) {
+  const st = F.chState(c);
+  const friend = F.other(fr, kid.id);
+  const today = G.today();
+  if (st === 'declined') return '';
+  if (st === 'pending') {
+    return c.from === kid.id
+      ? `<div class="fch pending">${e(c.emoji)} <b>${e(c.name)}</b> · ${c.days} ${pw(c.days, 'day')} <span class="tag wait">⏳ ${t('fr.waitAnswer')}</span></div>`
+      : `<div class="fch incoming">⚔️ ${t('fr.challengesYou', { name: e(friend.card.name) })}: <b>${e(c.emoji)} ${e(c.name)}</b> · ${c.days} ${pw(c.days, 'day')}
+          <div class="row gap"><button class="btn primary grow" data-act="frChAnswer" data-pair="${fr.id}" data-id="${c.id}" data-v="active">💪 ${t('fr.accept')}</button><button class="btn" data-act="frChAnswer" data-pair="${fr.id}" data-id="${c.id}" data-v="declined">${t('kid.no')}</button></div></div>`;
+  }
+  const mine = F.chCount(fr, kid.id, c), theirs = F.chCount(fr, friend.kidId, c);
+  const dayN = Math.min(c.days, G.dayNumber(today) - G.dayNumber(c.start) + 1);
+  const done = !!fr.m?.[kid.id]?.[c.id]?.[today];
+  const win = st === 'finished' ? (mine > theirs ? 'me' : theirs > mine ? 'them' : 'tie') : null;
+  return `<div class="fch ${st}">
+    <div class="row-between"><b>${e(c.emoji)} ${e(c.name)}</b><span class="tag ${st === 'active' ? 'ok' : ''}">${st === 'active' ? t('ch.dayOf', { n: dayN, total: c.days }) : st === 'finished' ? (win === 'me' ? '🥇 ' + t('fr.youWon') : win === 'tie' ? '🤝 ' + t('fr.tie') : t('ch.finished')) : t('ch.upcoming')}</span></div>
+    <div class="board">
+      <div class="b-row ${win === 'me' ? 'win' : ''}"><span class="b-name">${e(kid.avatar)} ${t('fr.me')}</span><div class="bar"><div class="fill" style="width:${Math.round(mine / c.days * 100)}%"></div></div><span class="b-num">${mine}/${c.days}</span></div>
+      <div class="b-row ${win === 'them' ? 'win' : ''}"><span class="b-name">${e(friend.card.avatar)} ${e(friend.card.name)}</span><div class="bar"><div class="fill" style="width:${Math.round(theirs / c.days * 100)}%"></div></div><span class="b-num">${theirs}/${c.days}</span></div>
+    </div>
+    ${st === 'active' ? `<button class="btn ${done ? 'done-btn' : 'primary'} full" data-act="frChMark" data-pair="${fr.id}" data-id="${c.id}" data-kid="${kid.id}">${done ? t('ch.doneToday') : '✅ ' + t('ch.markToday')}</button>` : ''}
+  </div>`;
+}
+
+function kidFriends(kid) {
+  if (S.mode !== 'cloud') return `<div class="empty">👫<p>${t('fr.needCloud')}</p></div>`;
+  const list = myFriendships(kid);
+  const active = list.filter(F.isActive);
+  const waiting = list.filter(fr => !F.isActive(fr) && !F.isDeclined(fr));
+  let html = `<section class="card center invite-box"><h2>${t('fr.title')}</h2><p class="muted">${t('fr.text')}</p>
+    <div class="stack">
+      ${canPickContact() ? `<button class="btn primary big" data-act="frContact" data-kid="${kid.id}" ${ui.busy ? 'disabled' : ''}>📇 ${t('fr.fromContacts')}</button>` : ''}
+      <button class="btn big" data-act="frCode" data-kid="${kid.id}" ${ui.busy ? 'disabled' : ''}>🔗 ${t('fr.byCode')}</button>
+      <button class="link" data-act="frEnter" data-kid="${kid.id}">${t('fr.haveCode')}</button>
+    </div>
+    ${canPickContact() ? '' : `<p class="hint">${t('fr.noContacts')}</p>`}
+  </section>${msgLine()}`;
+  if (waiting.length) {
+    html += `<h3 class="section">${t('fr.waiting')}</h3><div class="card list">${waiting.map(fr => { const o = F.other(fr, kid.id); return `<div class="row">${friendAvatar(o.card)}<span class="grow"><b>${e(o.card.name)}</b><span class="small block">⏳ ${t('fr.waitParents')}</span></span></div>`; }).join('')}</div>`;
+  }
+  if (!active.length) return html + `<div class="empty">🤝<p>${t('fr.empty')}</p></div>`;
+  html += `<h3 class="section">${t('fr.list')}</h3>` + active.map(fr => {
+    const o = F.other(fr, kid.id);
+    const chs = F.challenges(fr).filter(c => c.status !== 'declined' && !(F.chState(c) === 'finished' && G.challengeEnd(c) < G.addDays(G.today(), -7)));
+    return `<div class="card friend-card" style="--kc:${e(o.card.color || '#ff8a3d')}">
+      <div class="row">${friendAvatar(o.card)}<div class="grow"><div class="kid-name">${e(o.card.name)}</div>
+        ${o.card.pet ? `<div class="small">${e(o.card.pet.emoji)} ${e(o.card.pet.name)}${o.card.pet.level ? ' · ' + t('kid.petLevel', { n: o.card.pet.level }) : ''}</div>` : ''}</div>
+        <button class="btn sm primary" data-act="frChNew" data-pair="${fr.id}" data-kid="${kid.id}">⚔️ ${t('fr.challenge')}</button></div>
+      ${chs.map(c => friendChallengeHtml(fr, kid, c)).join('')}
+    </div>`;
+  }).join('');
+  return html;
+}
+
+function inviteText(code, kid) {
+  return t('fr.inviteText', { name: kid.name, url: `${PUBLIC_URL}?friend=${code}`, code });
 }
 
 function activeChallengesFor(pid) {
@@ -434,7 +523,8 @@ function parentView() {
   else if (tab === 'settings') body = parentSettings();
   else body = parentHome();
   const pending = kidsList().reduce((n, k) => n + G.pendingList(k).length + (k.requests || []).filter(r => G.requestStatus(k, r) === 'pending').length
-    + G.pendingProposals(k).filter(p => p.to === parentPid() || S.mode === 'local').length, 0);
+    + G.pendingProposals(k).filter(p => p.to === parentPid() || S.mode === 'local').length, 0)
+    + (S.mode === 'cloud' ? Object.values(S.friendships || {}).filter(fr => F.needsApproval(fr, S.fid)).length : 0);
   const tabs = [['home', '🏠', t('tab.home'), pending], ['kids', '👧', t('tab.kids')], ['rewards', '🎁', t('tab.rewards')], ['challenges', '🏆', t('tab.challenges')], ['settings', '⚙️', t('tab.settings')]];
   const fname = S.family?.name;
   const date = new Date().toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -481,7 +571,17 @@ function parentHome() {
         <button class="btn sm primary" data-act="answerProposal" data-kid="${kid.id}" data-id="${p.id}" data-v="accepted">💪 ${t('home.acceptCh')}</button>
         <button class="btn sm" data-act="answerProposal" data-kid="${kid.id}" data-id="${p.id}" data-v="declined" aria-label="${t('home.decline')}">✕</button></div>`).join('')}</div>`;
   }
-  if (!approvals.length && !requests.length && !proposals.length) html += `<p class="hint center">${t('home.allClear')}</p>`;
+  const frApprovals = S.mode === 'cloud' ? Object.values(S.friendships || {}).filter(fr => F.needsApproval(fr, S.fid)) : [];
+  if (frApprovals.length) {
+    html += `<h3 class="section">${t('fr.approvals')}</h3><div class="card list">${frApprovals.map(fr => {
+      const mine = S.kids[F.myKidIn(fr, S.fid)];
+      const o = F.other(fr, mine?.id);
+      return `<div class="appr"><div class="grow"><b>${e(mine?.avatar || '')} ${e(mine?.name || '')}</b> ↔ ${e(o.card.avatar)} ${e(o.card.name)}<div class="small">${t('fr.wantsFriend')}</div></div>
+        <button class="btn sm primary" data-act="frApprove" data-pair="${fr.id}" data-v="1">✓ ${t('fr.allow')}</button>
+        <button class="btn sm" data-act="frApprove" data-pair="${fr.id}" data-v="0" aria-label="${t('home.decline')}">✕</button></div>`;
+    }).join('')}</div>`;
+  }
+  if (!approvals.length && !requests.length && !proposals.length && !frApprovals.length) html += `<p class="hint center">${t('home.allClear')}</p>`;
   return html;
 }
 
@@ -527,6 +627,10 @@ function parentKids() {
     </div>
     ${grid ? `<h3 class="section">${t('kids.history')}</h3><div class="card">${grid}<p class="hint">${t('kids.markFor')}</p></div>` : ''}
     <h3 class="section">${t('kids.devices')}</h3><div class="card list">${devices}</div>
+    ${S.mode === 'cloud' ? `<h3 class="section">${t('fr.list')}</h3><div class="card list">${Object.values(S.friendships || {}).filter(fr => F.involves(fr, k.id) && !F.isDeclined(fr)).map(fr => {
+      const o = F.other(fr, k.id);
+      return `<div class="row-between"><span>${e(o.card.avatar)} ${e(o.card.name)}${F.isActive(fr) ? '' : ` <span class="tag wait">${t('fr.waitParents')}</span>`}${fr.via === 'contact' ? ' <span class="small">📇</span>' : ''}</span><button class="btn sm" data-act="frRemove" data-pair="${fr.id}">${t('fr.remove')}</button></div>`;
+    }).join('') || `<p class="muted">${t('fr.noneParent')}</p>`}</div>` : ''}
     <button class="link danger" data-act="deleteKid" data-kid="${k.id}">${t('kids.delete')}</button>`;
 }
 
@@ -647,6 +751,30 @@ function modalView() {
       return `${close}<form data-form="text" class="stack"><h2>${e(m.title)}</h2><input id="t_val" maxlength="${m.max || 40}" value="${e(m.value || '')}" placeholder="${e(m.ph || '')}" data-fresh>
         <button class="btn primary big">${t('common.save')}</button></form>`;
     case 'challenge': return close + challengeForm(m);
+    case 'frSend':
+      return `${close}<div class="center"><div class="cele-emoji">📇</div><h2>${t('fr.sendTo', { name: e(m.contact.name || m.contact.phone) })}</h2><p class="muted">${t('fr.sendText')}</p>
+        <div class="stack"><button class="btn primary big" data-act="frSms">💬 SMS</button><button class="btn big" data-act="frWa">🟢 WhatsApp</button></div></div>`;
+    case 'frEnter':
+      return `${close}<form data-form="frEnter" class="stack"><h2>${t('fr.haveCode')}</h2>
+        <input id="frCode" class="code-input" maxlength="10" autocomplete="off" autocapitalize="characters" placeholder="ABCD2345" value="${e(m.code || '')}" data-fresh>
+        ${m.error ? `<p class="msg error">${e(m.error)}</p>` : ''}<button class="btn primary big">${t('welcome.connect')}</button></form>`;
+    case 'frConfirm': {
+      const c = m.invite.card || {};
+      const kids = S.role === 'child' ? [S.kids[S.kidId]] : kidsList();
+      return `${close}<div class="center"><span class="avatar xl" style="background:${e(c.color || '#ff8a3d')}">${e(c.avatar || '🙂')}</span>
+        <h2>${t('fr.addQ', { name: e(c.name) })}</h2>${c.pet ? `<p class="muted">${e(c.pet.emoji)} ${e(c.pet.name)}</p>` : ''}
+        ${m.invite.via === 'code' ? `<p class="hint">${t('fr.codeNote')}</p>` : ''}
+        ${m.error ? `<p class="msg error">${e(m.error)}</p>` : ''}
+        <div class="stack">${kids.filter(Boolean).map(k => `<button class="btn primary big" data-act="frAccept" data-kid="${k.id}">${kids.length > 1 ? `${e(k.avatar)} ${e(k.name)}: ` : ''}${t('fr.yesFriends')}</button>`).join('')}</div></div>`;
+    }
+    case 'frChNew': {
+      const d = m.draft;
+      return `${close}<form data-form="frChNew" class="stack"><h2>⚔️ ${t('fr.challengeTitle', { name: e(m.friendName) })}</h2>
+        <label class="field"><span>${t('ch.habit')}</span><input id="c_name" maxlength="40" value="${e(d.name)}" data-fresh></label>
+        <div class="chips">${['read', 'sport', 'veggies', 'screen', 'water', 'teeth_pm'].map(code => { const h = HABITS.find(x => x.code === code); return `<button type="button" class="chip" data-act="chIdea" data-code="${code}">${h.emoji} ${e(h[lang] || h.en)}</button>`; }).join('')}</div>
+        <div class="field"><span>${t('ch.days')}</span><div class="chips">${[3, 7, 14, 21].map(n => `<button type="button" class="chip ${d.days === n ? 'sel' : ''}" data-act="mdraft" data-k="days" data-v="${n}" data-num>${n}</button>`).join('')}</div></div>
+        <button class="btn primary big">${t('kid.proposeSend')} ⚔️</button></form>`;
+    }
     case 'propose': {
       const d = m.draft;
       const adults = adultsList();
@@ -798,6 +926,14 @@ async function toggleMark(kidId, hid, day, ctx, el) {
   if (Object.keys(dm).length) marks[day] = dm; else delete marks[day];
   patch.marks = marks;
   try { await updateKid(kidId, patch); } catch (err) { setMsg(errText(err), true); }
+  // Вызовы с друзьями по такой же привычке засчитываются сами.
+  if (S.mode === 'cloud') {
+    for (const fr of Object.values(S.friendships || {})) {
+      if (!F.involves(fr, kidId) || !F.isActive(fr)) continue;
+      const fp = F.marksAfterHabit(fr, kidId, h.name, day, !!dm[hid]);
+      if (fp) friendUpdate(fr.id, fp).catch(() => {});
+    }
+  }
 }
 
 const actions = {
@@ -941,6 +1077,50 @@ const actions = {
       updateFamily({ challenges: list }).catch(err => setMsg(errText(err), true));
     }
   },
+  frContact: d => busy(async () => {
+    const contact = await pickContact();
+    if (!contact) return;
+    const code = await friendInvite(d.kid, 'contact');
+    openModal({ type: 'frSend', contact, text: inviteText(code, S.kids[d.kid]) });
+  }),
+  frSms: () => { openSms(modal.contact.phone, modal.text); closeModal(); },
+  frWa: () => { openWhatsApp(modal.contact.phone, modal.text); closeModal(); },
+  frCode: d => busy(async () => {
+    const code = await friendInvite(d.kid, 'code');
+    openModal({ type: 'code', code, title: t('fr.byCode'), text: t('fr.codeText'), share: inviteText(code, S.kids[d.kid]) });
+  }),
+  frEnter: () => openModal({ type: 'frEnter' }),
+  frAccept: d => {
+    const inv = modal.invite;
+    busy(async () => {
+      try { await friendAccept(inv, d.kid); } catch (err) { modal.error = errText(err); renderModal(); throw err; }
+      closeModal();
+      try { localStorage.removeItem('ybk-friend'); } catch (err) {}
+      prefs.ktab = 'friends'; savePrefs();
+      confetti(40); sound('fanfare');
+    });
+  },
+  frApprove: d => friendUpdate(d.pair, { [`approvals.${S.fid}`]: d.v === '1' }).catch(err => setMsg(errText(err), true)),
+  frRemove: d => { if (confirm(t('fr.remove') + '?')) friendRemove(d.pair).catch(err => setMsg(errText(err), true)); },
+  frChNew: d => {
+    const fr = S.friendships[d.pair];
+    openModal({ type: 'frChNew', pair: d.pair, kid: d.kid, friendName: F.other(fr, d.kid).card.name, draft: { name: '', emoji: '⚔️', days: 7 } });
+  },
+  frChAnswer: d => {
+    const patch = { [`ch.${d.id}.status`]: d.v };
+    if (d.v === 'active') patch[`ch.${d.id}.start`] = G.today();
+    friendUpdate(d.pair, patch).catch(err => setMsg(errText(err), true));
+    if (d.v === 'active') { sound('fanfare'); confetti(30); }
+  },
+  frChMark: (d, el) => {
+    const fr = S.friendships[d.pair];
+    const today = G.today();
+    const mine = { ...(fr.m?.[d.kid] || {}) };
+    const cm = { ...(mine[d.id] || {}) };
+    if (cm[today]) delete cm[today]; else { cm[today] = true; sound('ding'); floatText(el, '⚔️'); }
+    mine[d.id] = cm;
+    friendUpdate(d.pair, { [`m.${d.kid}`]: mine }).catch(err => setMsg(errText(err), true));
+  },
   propose: d => {
     const adults = adultsList();
     openModal({ type: 'propose', kid: d.kid, draft: { to: adults[0]?.[0] || null, name: '', emoji: '🏆', days: 7 } });
@@ -959,14 +1139,14 @@ const actions = {
   chDelete: d => { if (confirm(t('ch.delete') + '?')) updateFamily({ challenges: S.family.challenges.filter(c => c.id !== d.id) }).catch(err => setMsg(errText(err), true)); },
   linkDevice: d => busy(async () => {
     const code = await createCode('child', d.kid);
-    openModal({ type: 'code', code, title: `${S.kids[d.kid].avatar} ${S.kids[d.kid].name}`, text: t('kids.codeText') });
+    openModal({ type: 'code', code, title: `${S.kids[d.kid].avatar} ${S.kids[d.kid].name}`, text: t('kids.codeText'), share: t('kids.inviteText', { name: S.kids[d.kid].name, url: `${PUBLIC_URL}?join=${code}`, code }) });
   }),
   inviteParent: () => busy(async () => {
     const code = await createCode('parent');
     openModal({ type: 'code', code, title: t('set.inviteParent').replace('+ ', ''), text: t('set.parentCodeText') });
   }),
   copyCode: async () => { try { await copyText(modal.code); modal.copied = true; renderModal(); } catch (err) {} },
-  shareCode: async () => { try { await shareText(`YouBoost Kids: ${modal.code}\n${PUBLIC_URL}`); } catch (err) {} },
+  shareCode: async () => { try { await shareText(modal.share || `YouBoost Kids: ${modal.code}\n${PUBLIC_URL}?join=${modal.code}`); } catch (err) {} },
   unlink: d => { if (confirm(t('kids.unlink') + '?')) busy(() => removeMember(d.uid)); },
   editFamily: () => openModal({ type: 'text', field: 'familyName', title: t('set.family'), value: S.family?.name || '', ph: t('set.familyPh') }),
   sound: (d, el) => { prefs.sound = el.checked; savePrefs(); },
@@ -1116,6 +1296,23 @@ const forms = {
     if (modal.field === 'familyName') updateFamily({ name: v }).catch(err => setMsg(errText(err), true));
     closeModal();
   },
+  frEnter: f => {
+    const code = f.querySelector('#frCode').value;
+    busy(async () => {
+      try { openModal({ type: 'frConfirm', invite: await friendGetInvite(code) }); }
+      catch (err) { modal.error = errText(err); modal.code = code; renderModal(); }
+    });
+  },
+  frChNew: f => {
+    syncModalText();
+    const d = modal.draft;
+    d.name = d.name.trim();
+    if (!d.name) return f.querySelector('#c_name').focus();
+    const id = G.newId();
+    friendUpdate(modal.pair, { [`ch.${id}`]: F.newChallenge(modal.kid, d) }).catch(err => setMsg(errText(err), true));
+    closeModal();
+    sound('fanfare'); confetti(25);
+  },
   propose: f => {
     syncModalText();
     const d = modal.draft;
@@ -1185,6 +1382,38 @@ setInterval(() => { if (G.today() !== lastDay) { lastDay = G.today(); render(); 
 document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 
 const GOOGLE_SVG = '<svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
+
+// Ссылки-приглашения: ?join=КОД — родитель зовёт ребёнка в семью, ?friend=КОД — друг зовёт дружить.
+(function readLinks() {
+  const q = new URLSearchParams(location.search);
+  const join = F.cleanCode(q.get('join'));
+  const friend = F.cleanCode(q.get('friend'));
+  if (join) { ui.joinCode = join; ui.welcome = 'child'; }
+  if (friend) { try { localStorage.setItem('ybk-friend', friend); } catch (err) {} }
+  if (join || friend) {
+    q.delete('join'); q.delete('friend');
+    history.replaceState(null, '', location.pathname + (q.toString() ? '?' + q : ''));
+  }
+})();
+function pendingFriendCode() { try { return localStorage.getItem('ybk-friend'); } catch (err) { return null; } }
+let friendLinkBusy = false;
+function checkFriendLink() {
+  const code = pendingFriendCode();
+  if (!code || friendLinkBusy || modal || S.mode !== 'cloud' || !S.synced) return;
+  if (!kidsList().length) return;
+  friendLinkBusy = true;
+  friendGetInvite(code).then(invite => {
+    if (invite.fid === S.fid) { localStorage.removeItem('ybk-friend'); return; }
+    openModal({ type: 'frConfirm', invite });
+  }).catch(err => { try { localStorage.removeItem('ybk-friend'); } catch (e2) {} setMsg(errText(err), true); })
+    .finally(() => { friendLinkBusy = false; });
+}
+let cardsAt = 0;
+function maybeRefreshCards() {
+  if (Date.now() - cardsAt < 15000) return;
+  cardsAt = Date.now();
+  friendRefreshCards();
+}
 
 initStore(render);
 render();

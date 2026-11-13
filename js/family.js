@@ -5,10 +5,11 @@
 import * as cloud from './cloud.js';
 import { social } from './cloud.js';
 import * as G from '../kids/js/logic.js';
+import * as F from '../kids/js/friends.js';
 import { AVATARS, COLORS, REWARDS, HABITS as KID_HABITS, starterFor } from '../kids/js/catalog.js';
 import { t, pw, lang } from './i18n.js';
 import { habitKey, escapeHtml as e } from './core.js';
-import { isNative } from './native.js';
+import { isNative, nativeShare, openExternal } from './native.js';
 
 export const KIDS_URL = 'https://shusandrik23.github.io/Poleznieprivichki/kids/';
 
@@ -18,6 +19,7 @@ const fam = {
   family: null,
   kids: {},
   members: [],
+  friendships: {},    // дружбы детей с детьми из других семей
   error: null,
   flash: {},          // ключ → { text, error }
   code: null,         // { code, title, text }
@@ -87,6 +89,7 @@ function listenFamily(fid) {
     fam.kids = kids;
     onChange();
   }, lost));
+  famUnsubs.push(F.listenFriendships({ fb, db }, fid, map => { fam.friendships = map; onChange(); }, err => console.error(err)));
   famUnsubs.push(fb.onSnapshot(fb.collection(db, 'kidsFamilies', fid, 'members'), snap => {
     fam.members = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
     if (!snap.docs.some(d => d.id === myUid())) { stopFamily(); Object.assign(fam, { fid: null, family: null, kids: {}, members: [] }); }
@@ -103,7 +106,8 @@ export function familyBadge() {
   if (!fam.fid) return 0;
   return kidsList().reduce((n, k) => n + G.pendingList(k).length
     + (k.requests || []).filter(r => G.requestStatus(k, r) === 'pending').length
-    + G.pendingProposals(k, myPid()).length, 0);
+    + G.pendingProposals(k, myPid()).length, 0)
+    + Object.values(fam.friendships).filter(fr => F.needsApproval(fr, fam.fid)).length;
 }
 
 // ---------- Запись ----------
@@ -259,10 +263,23 @@ function kidCard(k) {
       <button class="btn small-btn" data-fam="decide" data-kid="${k.id}" data-id="${r.id}" data-v="rejected">✕</button></span></div>`).join('');
   }
 
+  const frs = Object.values(fam.friendships).filter(fr => F.involves(fr, k.id) && !F.isDeclined(fr));
+  const frAsk = frs.filter(fr => F.needsApproval(fr, fam.fid));
+  if (frAsk.length) {
+    html += `<div class="fam-sub">${t('fam.friendAsk')}</div>` + frAsk.map(fr => { const o = F.other(fr, k.id); return `<div class="row-between fam-line">
+      <span>${e(o.card.avatar)} ${e(o.card.name)}${o.card.pet ? ` <span class="small">· ${e(o.card.pet.emoji)} ${e(o.card.pet.name)}</span>` : ''}</span>
+      <span class="row"><button class="btn primary small-btn" data-fam="fr-approve" data-pair="${fr.id}" data-v="1">✓ ${t('fam.allow')}</button>
+      <button class="btn small-btn" data-fam="fr-approve" data-pair="${fr.id}" data-v="0">✕</button></span></div>`; }).join('');
+  }
+  const frOk = frs.filter(F.isActive);
+  if (frOk.length) {
+    html += `<div class="fam-sub">${t('fam.friends')}</div><div class="fam-tasks">${frOk.map(fr => { const o = F.other(fr, k.id); return `<span class="fam-task">${e(o.card.avatar)} ${e(o.card.name)}${fr.via === 'contact' ? ' 📇' : ''} <button class="link-btn" data-fam="fr-remove" data-pair="${fr.id}" title="${t('fam.removeFriend')}">✕</button></span>`; }).join('')}</div>`;
+  }
+
   html += `<div class="row fam-actions">
       <button class="btn small-btn ${fam.taskFor === k.id ? 'primary' : ''}" data-fam="task-toggle" data-kid="${k.id}">📬 ${t('fam.sendTask')}</button>
       <button class="btn small-btn" data-fam="praise" data-kid="${k.id}">👏 ${t('fam.praise')}</button>
-      <button class="btn small-btn" data-fam="kid-code" data-kid="${k.id}">📱 ${devices ? t('fam.phoneLinked') : t('fam.linkPhone')}</button>
+      <button class="btn small-btn" data-fam="kid-code" data-kid="${k.id}">📲 ${devices ? t('fam.phoneLinked') : t('fam.inviteKid')}</button>
     </div>`;
   if (fam.taskFor === k.id) {
     html += `<form class="stack fam-form" data-form="famTask" data-id="${k.id}">
@@ -283,7 +300,9 @@ function kidCard(k) {
 
 function codeBox() {
   return `<div class="fam-code"><div class="small">${e(fam.code.text)}</div><div class="fam-code-num">${e(fam.code.code)}</div>
-    <button class="btn small-btn" data-fam="copy-code">${t('fam.copy')}</button></div>`;
+    <div class="row" style="justify-content:center">
+      ${fam.code.share ? `<button class="btn primary small-btn" data-fam="share-code">📤 ${t('fam.share')}</button><button class="btn small-btn" data-fam="wa-code">WhatsApp</button>` : ''}
+      <button class="btn small-btn" data-fam="copy-code">${t('fam.copy')}</button></div></div>`;
 }
 
 function challengesHtml() {
@@ -383,7 +402,7 @@ export function familyClick(el) {
     case 'kid-code':
       return act('code', async () => {
         const code = await createCode('child', k.id);
-        fam.code = { kid: k.id, code, text: t('fam.kidCodeText', { name: k.name }) };
+        fam.code = { kid: k.id, code, text: t('fam.kidCodeText', { name: k.name }), share: t('fam.kidInviteMsg', { name: k.name, url: `${KIDS_URL}?join=${code}`, code }) };
       });
     case 'parent-code':
       return act('code', async () => {
@@ -391,7 +410,20 @@ export function familyClick(el) {
         fam.code = { kid: 'parent', code, text: t('fam.parentCodeText') };
       });
     case 'copy-code':
-      navigator.clipboard?.writeText(fam.code.code).catch(() => {});
+      navigator.clipboard?.writeText(fam.code.share || fam.code.code).catch(() => {});
+      return;
+    case 'share-code':
+      if (isNative) nativeShare({ text: fam.code.share }).catch(() => {});
+      else if (navigator.share) navigator.share({ text: fam.code.share }).catch(() => {});
+      else navigator.clipboard?.writeText(fam.code.share).catch(() => {});
+      return;
+    case 'wa-code':
+      openExternal('https://wa.me/?text=' + encodeURIComponent(fam.code.share));
+      return;
+    case 'fr-approve':
+      return F.updateFriendship(h(), d.pair, { [`approvals.${fam.fid}`]: d.v === '1' }).catch(console.error);
+    case 'fr-remove':
+      if (confirm(t('fam.removeFriend') + '?')) F.removeFriendship(h(), d.pair).catch(console.error);
       return;
     case 'ch-mark': {
       const today = G.today(), pid = myPid();

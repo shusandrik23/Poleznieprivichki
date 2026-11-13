@@ -311,5 +311,60 @@ service cloud.firestore {
             && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['marks', 'requests', 'chMarks', 'pet', 'proposals']));
       }
     }
+    // ---------- YouBoost Kids: друзья из разных семей ----------
+    // Действовать за ребёнка может его телефон или родитель из той же семьи.
+    function kidsCanActFor(fid, kid) {
+      return kidsMember(fid)
+        && (get(kidsMemberDoc(fid)).data.role == 'parent' || get(kidsMemberDoc(fid)).data.kidId == kid)
+        && exists(/databases/$(db)/documents/kidsFamilies/$(fid)/kids/$(kid));
+    }
+
+    // Приглашение в друзья. Код знает только тот, кому его отправили.
+    match /kidsFriendInvites/{code} {
+      allow get: if signedIn();
+      allow create: if signedIn()
+        && code.matches('^[A-Z0-9]{8}$')
+        && request.resource.data.keys().hasOnly(['fid', 'kidId', 'card', 'via', 'by', 'expires'])
+        && request.resource.data.by == me()
+        && request.resource.data.via in ['contact', 'code']
+        && kidsCanActFor(request.resource.data.fid, request.resource.data.kidId)
+        && request.resource.data.expires is timestamp
+        && request.resource.data.expires <= request.time + duration.value(8, 'd');
+      allow delete: if signedIn() && kidsCanActFor(resource.data.fid, resource.data.kidId);
+    }
+
+    // Дружба двух детей: kidsFriendships/{кто позвал}_{кто принял}
+    match /kidsFriendships/{pair} {
+      function invite() { return get(/databases/$(db)/documents/kidsFriendInvites/$(request.resource.data.code)).data; }
+      // каждая сторона меняет только свою карточку, свои отметки и одобрение своей семьи (одобряет только родитель)
+      function sideOk(fid, kid) {
+        let a = request.resource.data;
+        let b = resource.data;
+        return kidsCanActFor(fid, kid)
+          && a.diff(b).affectedKeys().hasOnly(['cards', 'approvals', 'ch', 'm'])
+          && a.cards.diff(b.cards).affectedKeys().hasOnly([kid])
+          && a.m.diff(b.m).affectedKeys().hasOnly([kid])
+          && a.approvals.diff(b.approvals).affectedKeys().hasOnly([fid])
+          && (a.approvals.get(fid, null) == b.approvals.get(fid, null) || kidsParent(fid));
+      }
+      // два отдельных правила: запросы «где fidA == моя семья» и «где fidB == моя семья»
+      allow read: if signedIn() && kidsMember(resource.data.fidA);
+      allow read: if signedIn() && kidsMember(resource.data.fidB);
+      allow create: if signedIn()
+        && pair == request.resource.data.kidA + '_' + request.resource.data.kidB
+        && request.resource.data.keys().hasOnly(['kidA', 'kidB', 'fidA', 'fidB', 'via', 'code', 'cards', 'approvals', 'ch', 'm', 'createdAt'])
+        && request.resource.data.fidA != request.resource.data.fidB
+        && invite().fid == request.resource.data.fidA
+        && invite().kidId == request.resource.data.kidA
+        && invite().via == request.resource.data.via
+        && invite().expires > request.time
+        && kidsCanActFor(request.resource.data.fidB, request.resource.data.kidB)
+        && request.resource.data.approvals.keys().hasOnly([request.resource.data.fidB])
+        && (request.resource.data.approvals.size() == 0 || kidsParent(request.resource.data.fidB))
+        && request.resource.data.ch.size() == 0
+        && request.resource.data.m.size() == 0;
+      allow update: if signedIn() && (sideOk(resource.data.fidA, resource.data.kidA) || sideOk(resource.data.fidB, resource.data.kidB));
+      allow delete: if signedIn() && (kidsCanActFor(resource.data.fidA, resource.data.kidA) || kidsCanActFor(resource.data.fidB, resource.data.kidB));
+    }
   }
 }
