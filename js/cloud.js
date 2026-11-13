@@ -748,6 +748,7 @@ export async function deleteAccount() {
   const user = auth.currentUser;
   const uid = user.uid;
   for (const k of social.kids) await removeKid(k.uid).catch(() => {});   // родитель удаляет и детские профили
+  if (social.kid) await deleteKidPhotos(uid);
   const myInvites = await fb.getDocs(fb.query(fb.collection(db, 'invites'), fb.where('from', '==', uid)));
   const batch = fb.writeBatch(db);
   for (const f of social.friends) {
@@ -829,14 +830,45 @@ export async function cancelKidJoin() {
   if (u?.isAnonymous && !social.kid) { try { await fb.deleteUser(u); } catch (e) { await fb.signOut(auth); } }
 }
 
-export async function assignHabit(kidUid, name) {
+export async function assignHabit(kidUid, name, photo = false) {
   name = String(name || '').trim().slice(0, 60);
   if (!name) return;
-  await fb.updateDoc(fb.doc(db, 'kids', kidUid), { assigned: fb.arrayUnion({ name, at: Date.now() }) });
+  await fb.updateDoc(fb.doc(db, 'kids', kidUid), { assigned: fb.arrayUnion({ name, at: Date.now(), photo: !!photo }) });
+}
+
+// Фото-отчёт ребёнка по заданию от родителя (task — метка задания). Видят только ребёнок и родитель, 7 дней.
+export async function addTaskPhoto(task, name, image) {
+  const uid = social.user.uid;
+  const today = todayNumber();
+  const day = String(today);
+  await fb.setDoc(fb.doc(db, 'kids', uid, 'photos', `${day}_${task}`), {
+    day, task, name: String(name).slice(0, 80), image, createdAt: fb.serverTimestamp(), expires: today + 7,
+  });
+}
+
+// Родитель: фото-отчёты ребёнка (старые удаляются).
+export async function loadKidPhotos(kidUid) {
+  const snap = await fb.getDocs(fb.collection(db, 'kids', kidUid, 'photos'));
+  const today = todayNumber();
+  const out = [];
+  for (const d of snap.docs) {
+    const p = d.data();
+    if (p.expires < today) fb.deleteDoc(d.ref).catch(() => {});
+    else out.push({ id: d.id, ...p });
+  }
+  return out.sort((a, b) => Number(b.day) - Number(a.day));
+}
+
+async function deleteKidPhotos(kidUid) {
+  try {
+    const snap = await fb.getDocs(fb.collection(db, 'kids', kidUid, 'photos'));
+    await Promise.all(snap.docs.map(d => fb.deleteDoc(d.ref)));
+  } catch (e) {}
 }
 
 export async function removeKid(kidUid) {
   const me = social.user.uid;
+  await deleteKidPhotos(kidUid);
   const batch = fb.writeBatch(db);
   for (const col of ['kids', 'profiles', 'discoverKids', 'stats', 'users']) batch.delete(fb.doc(db, col, kidUid));
   batch.delete(fb.doc(db, 'users', me, 'friends', kidUid));

@@ -62,7 +62,7 @@ const tourData = {};        // id турнира → { top, total, myPlace, load
 let tourOpen = null;        // турнир с раскрытой таблицей лидеров
 let feedOpen = null;        // турнир с раскрытой лентой фото
 let photoUploading = null;  // турнир, для которого загружается фото
-let photoFor = null;        // { kind: 'tour' | 'ch', id } — для чего выбирают фото
+let photoFor = null;        // { kind: 'tour' | 'ch' | 'task', id } — для чего выбирают фото
 const challData = {};       // id вызова → { photos, loading }
 const cleanedCh = new Set(); // вызовы, чьи фото уже удалены после окончания
 let similar = null;         // результаты поиска единомышленников
@@ -71,6 +71,7 @@ let pendingInvite = null;   // { code, data?, status }
 let kidJoin = null;         // экран входа ребёнка: { code, name }
 let kidInvite = null;       // родитель: созданный код для ребёнка { code, url }
 let kidAssignOpen = null;   // родитель: uid ребёнка с открытой формой «прислать привычку»
+const kidPhotos = {};       // родитель: uid ребёнка → { loading, list } фото-отчётов
 const KID_CODE_KEY = 'youboost-kid-code';
 const KID_SEEN_KEY = 'youboost-kid-assigned';
 const flash = {};           // сообщения под формами: { friends: {text, error} }
@@ -408,6 +409,8 @@ function renderHabits() {
         ${current > 0 && !isKidMode() ? `<button class="icon-btn${sharing === h.id ? ' active' : ''}" data-action="share-edit" data-id="${h.id}" title="${t('habit.share')}" aria-label="${t('habit.share')}">${SHARE_SVG}</button>` : ''}
         <button class="icon-btn delete" data-action="remove" data-id="${h.id}" title="${t('habit.delete')}" aria-label="${t('habit.delete')}">×</button>
       </div>
+      ${isKidMode() && h.task ? `<p class="task-line">${t('task.fromParent')}${h.taskPhoto ? ' · ' + (h.photoSent?.[todayKey] ? `<span class="ok">${t('task.photoSent')}</span>`
+        : photoUploading === h.id ? t('tour.photoUploading') : `<button class="btn small-btn" data-action="task-photo" data-id="${h.id}">${t('task.photoBtn')}</button>`) : ''}</p>` : ''}
       ${deadlineOf(h) ? `<p class="wake-hint">${wakeMsg?.id === h.id ? `<span class="${wakeMsg.error ? 'err' : 'ok'}">${e(wakeMsg.text)}</span>` : t('wake.hint', { time: deadlineOf(h) })}</p>` : ''}
       <div class="stats"><span>${t('stats.current', { n: current, days: pw(current, 'day') })}</span><span>${t('stats.best', { n: best, days: pw(best, 'day') })}</span></div>`;
 
@@ -557,6 +560,19 @@ function kidJoinCard() {
   </div>`;
 }
 
+// Родитель: фото-отчёты ребёнка по заданиям (хранятся 7 дней).
+function kidPhotosHtml(k) {
+  const d = kidPhotos[k.uid];
+  if (!d) {
+    kidPhotos[k.uid] = { loading: true };
+    cloud.loadKidPhotos(k.uid).then(list => { kidPhotos[k.uid] = { list }; render(); }).catch(() => { kidPhotos[k.uid] = { list: [] }; render(); });
+    return '';
+  }
+  if (d.loading || !d.list.length) return '';
+  return `<div class="kid-photos">${d.list.slice(0, 12).map(p => `<figure><img src="${p.image}" alt=""><figcaption>${e(displayName(p.name))} · ${shortDate(Number(p.day))}</figcaption></figure>`).join('')}</div>
+    <button class="link-btn" data-action="kid-photos-reload" data-uid="${k.uid}">${t('task.reload')}</button>`;
+}
+
 // Родитель: дети, их серии, привычки от родителя, новый код.
 function kidsCard() {
   const today = todayNumber();
@@ -569,10 +585,12 @@ function kidsCard() {
         <div class="row"><button class="btn small-btn" data-action="kid-assign" data-uid="${k.uid}">${t('kid.sendHabit')}</button>
         <button class="icon-btn delete" data-action="kid-remove" data-uid="${k.uid}" title="${t('kid.remove')}" aria-label="${t('kid.remove')}">×</button></div></div>
       ${st.length ? `<div class="small">${st.map(x => `${e(nameOfKey(x.key, x.name))} — <b>${liveStreak(x, today)}</b>`).join(' · ')}</div>` : `<div class="small">${t('kid.noHabitsYet')}</div>`}
+      ${kidPhotosHtml(k)}
       ${kidAssignOpen === k.uid ? `<form data-form="kidassign" data-id="${k.uid}" class="stack panel">
         <label>${t('kid.fromCatalog')}<select name="catalog"><option value="">—</option>${KID_ONLY.concat(['read', 'water', 'morning_exercise', 'make_bed', 'walk_outside', 'help_someone', 'call_family'])
           .map(id => `<option value="${e(catalogName(id))}">${e(catalogName(id))}</option>`).join('')}</select></label>
         <label>${t('kid.orOwn')}<input name="own" maxlength="60" placeholder="${t('kid.ownPh')}" autocomplete="off"></label>
+        <label class="check-row"><input type="checkbox" name="photo"><span>${t('task.askPhoto')}</span></label>
         <button class="btn primary" type="submit">${t('kid.sendBtn')}</button>
         ${flashHtml('kidassign')}
       </form>` : ''}
@@ -1431,6 +1449,7 @@ async function run(key, fn) {
 }
 
 function goTab(name) {
+  if (name === 'friends') for (const k of Object.keys(kidPhotos)) if (!kidPhotos[k].loading) delete kidPhotos[k];   // свежие фото детей
   if (name === 'challenges') {   // свежие таблицы турниров и фото вызовов
     for (const k of Object.keys(tourData)) if (!tourData[k].loading) delete tourData[k];
     for (const k of Object.keys(challData)) if (!challData[k].loading) delete challData[k];
@@ -1562,6 +1581,8 @@ document.addEventListener('click', ev => {
       break;
     }
     case 'tour-photo': photoFor = { kind: 'tour', id }; $('photoInput').value = ''; $('photoInput').click(); break;
+    case 'task-photo': photoFor = { kind: 'task', id }; $('photoInput').value = ''; $('photoInput').click(); break;
+    case 'kid-photos-reload': delete kidPhotos[el.dataset.uid]; render(); break;
     case 'ch-photo': photoFor = { kind: 'ch', id }; $('photoInput').value = ''; $('photoInput').click(); break;
     case 'tour-flag': {
       const tr = tournamentsAround(todayNumber()).find(x => x.id === id);
@@ -1616,6 +1637,23 @@ document.addEventListener('change', ev => {
     syncPush();
     // в браузере просим разрешение на уведомления
     if (ev.target.checked && !isNative && 'Notification' in window && Notification.permission === 'default') Notification.requestPermission();
+    return;
+  }
+  if (ev.target.id === 'photoInput' && photoFor?.kind === 'task') {
+    const file = ev.target.files?.[0];
+    const h = state.habits.find(x => x.id === photoFor.id);
+    if (!file || !h) return;
+    photoUploading = h.id; render();
+    run('kidHabit', async () => {
+      try {
+        await cloud.addTaskPhoto(h.task, h.name, await compressImage(file));
+        const today = dateKey(new Date());
+        h.photoSent = { [today]: true };
+        if (!h.done[today]) h.done[today] = true;   // фото — это и отметка за сегодня
+        save();
+        return t('task.photoSaved');
+      } finally { photoUploading = null; }
+    });
     return;
   }
   if (ev.target.id === 'photoInput' && photoFor?.kind === 'ch') {
@@ -1701,7 +1739,7 @@ document.addEventListener('submit', ev => {
   } else if (kind === 'kidassign') {
     const name = String(fd.get('own') || '').trim() || String(fd.get('catalog') || '');
     if (!name) return;
-    run('kidassign', async () => { await cloud.assignHabit(form.dataset.id, name); return t('kid.sent', { name }); });
+    run('kidassign', async () => { await cloud.assignHabit(form.dataset.id, name, !!fd.get('photo')); return t('kid.sent', { name }); });
   } else if (kind === 'nickname') {
     run('nickname', async () => { await cloud.claimNickname(fd.get('nickname'), pendingInvite?.code); renaming = false; });
   } else if (kind === 'settings') {
@@ -1781,7 +1819,13 @@ cloud.initCloud({
     try { seen = JSON.parse(localStorage.getItem(KID_SEEN_KEY) || '[]'); } catch (err) {}
     const fresh = list.filter(a => a && a.name && !seen.includes(a.at));
     if (!fresh.length) return;
-    for (const a of fresh) { addHabit(a.name, { silent: true }); seen.push(a.at); }
+    for (const a of fresh) {
+      addHabit(a.name, { silent: true });
+      const h = findHabit(a.name);
+      if (h) { h.task = a.at; h.taskPhoto = !!a.photo; }
+      seen.push(a.at);
+    }
+    save();
     try { localStorage.setItem(KID_SEEN_KEY, JSON.stringify(seen.slice(-200))); } catch (err) {}
     const names = fresh.map(a => displayName(a.name)).join(', ');
     flash.kidHabit = { text: t('kid.gotHabit', { names }) };

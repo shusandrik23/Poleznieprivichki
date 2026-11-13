@@ -78,6 +78,21 @@ service cloud.firestore {
         && request.resource.data.assigned is list
         && request.resource.data.assigned.size() <= 100;
       allow delete: if signedIn() && (kid == me() || resource.data.parent == me());
+
+      // Фото-отчёт по заданию от родителя: видят только ребёнок и родитель, хранится до 7 дней.
+      match /photos/{pid} {
+        allow read: if signedIn() && (kid == me() || parentOf(kid) == me());
+        allow create: if signedIn() && kid == me()
+          && request.resource.data.keys().hasOnly(['day', 'task', 'name', 'image', 'createdAt', 'expires'])
+          && pid == request.resource.data.day + '_' + string(request.resource.data.task)
+          && request.resource.data.day in todayKeys()
+          && request.resource.data.image is string
+          && request.resource.data.image.size() < 400000
+          && request.resource.data.createdAt == request.time
+          && request.resource.data.expires is int
+          && request.resource.data.expires <= int(request.resource.data.day) + 7;
+        allow delete: if signedIn() && (kid == me() || parentOf(kid) == me());
+      }
     }
 
     // Поиск единомышленников: ник и серии тех, кто сам включил «показывать меня».
@@ -250,9 +265,10 @@ service cloud.firestore {
         && request.resource.data.participants.size() == 2
         && request.resource.data.days is int
         && request.resource.data.days >= 1 && request.resource.data.days <= 365
-        // у детей — без фото
+        // у детей фото — только в вызове от своего родителя
         && (request.resource.data.get('photoRequired', false) == false
-          || (!isKid(request.resource.data.participants[0]) && !isKid(request.resource.data.participants[1])))
+          || (!isKid(request.resource.data.participants[0]) && !isKid(request.resource.data.participants[1]))
+          || (isKid(request.resource.data.participants[1]) && parentOf(request.resource.data.participants[1]) == request.resource.data.participants[0]))
         && (
           (request.resource.data.participants[0] == me()
             && request.resource.data.status == 'pending'
@@ -292,7 +308,7 @@ service cloud.firestore {
     match /challenges/{cid}/photos/{pid} {
       function challenge() { return get(/databases/$(db)/documents/challenges/$(cid)).data; }
       allow read: if signedIn() && me() in challenge().participants;
-      allow create: if signedIn() && !isKid(me())
+      allow create: if signedIn() && (!isKid(me()) || parentOf(me()) in challenge().participants)
         && me() in challenge().participants
         && challenge().status == 'active'
         && request.resource.data.keys().hasOnly(['uid', 'day', 'image', 'createdAt', 'expires'])

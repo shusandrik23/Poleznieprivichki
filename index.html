@@ -345,6 +345,12 @@
   .kid-row:first-of-type { border-top: 0; }
   .kid-code .code { font: 700 30px/1.2 ui-monospace, monospace; letter-spacing: 4px; text-align: center; margin: 6px 0; color: var(--accent); }
   .kid-add-note { margin: 10px 0; font-size: 14px; color: var(--muted); }
+  .task-line { grid-column: 1 / -1; margin: 4px 0 0; font-size: 13px; color: var(--muted); display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+  .task-line .ok { color: var(--accent); font-weight: 600; }
+  .kid-photos { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; margin-top: 8px; }
+  .kid-photos figure { margin: 0; }
+  .kid-photos img { width: 100%; aspect-ratio: 1; object-fit: cover; border-radius: 8px; display: block; }
+  .kid-photos figcaption { font-size: 11px; color: var(--muted); margin-top: 2px; }
 </style>
 </head>
 <body>
