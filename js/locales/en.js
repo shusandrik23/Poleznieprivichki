@@ -149,6 +149,7 @@ export default {
   'notify.challenge': '{name} challenges you: {habit}',
   'settings.account': '👤 Account',
   'settings.signinFirst': 'To set your name and visibility, sign in on the Friends tab.',
+  'settings.privacyPolicy': 'Privacy Policy',
   'settings.title': 'Privacy settings',
   'settings.showName': 'Show my real name to friends',
   'settings.realName': 'Real name',

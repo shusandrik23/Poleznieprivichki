@@ -1032,6 +1032,7 @@ function renderSettings() {
     html += `<div class="card"><h2>${t('settings.title')}</h2><p class="small">${t('settings.signinFirst')}</p>
       <button class="btn small-btn" data-action="go-friends">${t('tab.friends')}</button></div>`;
   }
+  html += `<p class="small" style="text-align:center"><a href="${PUBLIC_URL}privacy.html?lang=${lang}" data-action="open-privacy">${t('settings.privacyPolicy')}</a></p>`;
   setHTML($('view-settings'), html);
 }
 
@@ -1218,6 +1219,7 @@ document.addEventListener('click', ev => {
     case 'goal-set': setGoal(id, el.dataset.days ? Number(el.dataset.days) : null); break;
     case 'signin-google': flash.signin = { text: t('signin.opening') }; render(); run('signin', cloud.signInGoogle); break;
     case 'signin-browser': startBrowserSignIn(); break;
+    case 'open-privacy': ev.preventDefault(); openExternal(el.getAttribute('href')); break;
     case 'open-settings': goTab(tab === 'settings' ? 'habits' : 'settings'); break;
     case 'appauth-signin': appAuthSignIn(); break;
     case 'signin-apple': flash.signin = { text: t('signin.opening') }; render(); run('signin', cloud.signInApple); break;

@@ -2,7 +2,7 @@
 import { cpSync, rmSync, mkdirSync } from 'node:fs';
 
 const OUT = 'www';
-const FILES = ['index.html', 'firebase-config.js', 'js', 'icons', 'manifest.webmanifest'];
+const FILES = ['index.html', 'privacy.html', 'firebase-config.js', 'js', 'icons', 'manifest.webmanifest'];
 
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT);

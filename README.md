@@ -67,6 +67,7 @@ https://shusandrik23.github.io/Poleznieprivichki/
 | Файл | Что внутри |
 |---|---|
 | `index.html` | Разметка и стили |
+| `privacy.html` | Политика конфиденциальности (RU/EN) |
 | `js/app.js` | Интерфейс: привычки, друзья, вызовы |
 | `js/core.js` | Даты, подсчёт серий, сравнение привычек |
 | `js/plans.js` | Бесплатный тариф: лимит целей и бонус за приглашения |
@@ -139,7 +140,7 @@ npm run open:android  # открывает проект в Android Studio → Ru
 
 1. Аккаунт разработчика Google Play (разовый взнос $25).
 2. Ключ подписи для релиза и сборка `.aab` (`./gradlew bundleRelease`).
-3. Страница с политикой конфиденциальности и форма Data safety в консоли Google Play. Удаление аккаунта в приложении уже есть — Google Play его требует.
+3. Политика конфиденциальности уже есть: https://shusandrik23.github.io/Poleznieprivichki/privacy.html (файл `privacy.html`, RU/EN, ссылка в настройках приложения) — её адрес вставляется в Play Console. Там же заполнить форму Data safety в консоли Google Play. Удаление аккаунта в приложении уже есть — Google Play его требует.
 4. Позже: **Health Connect** — автоматически отмечать привычки по шагам, сну и тренировкам.
 
 Вход через Apple не нужен, пока нет версии для iPhone. Кнопка уже готова: `appleSignInEnabled` в `firebase-config.js`.

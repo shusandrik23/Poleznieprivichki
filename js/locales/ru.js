@@ -149,6 +149,7 @@ export default {
   'notify.challenge': '{name} бросает вам вызов: {habit}',
   'settings.account': '👤 Аккаунт',
   'settings.signinFirst': 'Чтобы настроить имя и видимость для других, войдите на вкладке «Друзья».',
+  'settings.privacyPolicy': 'Политика конфиденциальности',
   'settings.title': 'Настройки приватности',
   'settings.showName': 'Показывать друзьям моё настоящее имя',
   'settings.realName': 'Настоящее имя',
