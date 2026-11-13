@@ -176,7 +176,7 @@ function renderHome() {
   const started = Object.keys(S.done).length > 0;
   let k = 0;
 
-  let html = `<header class="topbar">
+  let html = `<div class="head" id="head"><header class="topbar">
     <span class="brand">מַסָּע בַּתַּנַ״ךְ</span>
     <span class="chip ${litToday ? '' : 'off'}" title="רֶצֶף יָמִים">🔥 ${st}</span>
     <span class="chip" title="מְגִלּוֹת XP">📜 ${S.xp}</span>
@@ -184,7 +184,7 @@ function renderHome() {
     ${ruOn() ? `<button class="iconbtn" data-act="names" aria-label="Имена">👥</button>` : ''}
     <button class="iconbtn" data-act="dict" aria-label="${tr('הַמִּלּוֹן שֶׁלִּי', 'Мой словарь')}">📖</button>
   </header>
-  <nav class="grades" aria-label="כִּתּוֹת">${C.books.map(b => `<button class="grade" data-act="jump" data-book="${b.id}">${esc(b.subtitle)}</button>`).join('')}</nav>`;
+  <nav class="grades" aria-label="כִּתּוֹת">${C.books.map(b => `<button class="grade" data-act="jump" data-book="${b.id}">${esc(b.subtitle)}</button>`).join('')}</nav></div>`;
 
   if (due.length) {
     html += `<div class="review-card">${mascot('happy')}
@@ -225,6 +225,33 @@ function renderHome() {
   const lastBook = S.lastBook && C.steps[S.lastBook] ? S.lastBook : null;
   const cur = lastBook && app.querySelector(`#book-${lastBook} .node.open`);
   if (cur) cur.scrollIntoView({ block: 'center' });
+}
+
+// Instant jump: a smooth scroll over thousands of pixels can stop short (e.g. inside the artifact viewer).
+function jumpToBook(id) {
+  const el = document.getElementById('book-' + id);
+  if (!el) return;
+  const head = document.getElementById('head');
+  const y = el.getBoundingClientRect().top + window.scrollY - (head ? head.offsetHeight : 0) - 8;
+  window.scrollTo(0, Math.max(0, y));
+}
+
+/* ---------------- first launch: language ---------------- */
+function renderWelcome() {
+  onHome = true;
+  app.innerHTML = `<div class="welcome">
+    ${mascot('happy')}
+    <h1>בְּרוּכִים הַבָּאִים לְמַסָּע בַּתַּנַ״ךְ!</h1>
+    <p>אֵיךְ נוֹחַ לָכֶם לִלְמֹד?</p>
+    <div class="choices">
+      <button class="choice" data-act="choose-lang" data-lang="he">
+        <b>עִבְרִית</b><span>כָּל הַשִּׁעוּרִים בְּעִבְרִית</span></button>
+      <button class="choice" data-act="choose-lang" data-lang="ru">
+        <b>עִבְרִית + תַּרְגּוּם לְרוּסִית</b>
+        <span class="ru" lang="ru" dir="ltr">Иврит + перевод на русский: истории, слова, вопросы и стихи. Удобно, если иврит пока даётся трудно.</span></button>
+    </div>
+    <p class="hint">אֶפְשָׁר לְשַׁנּוֹת בְּכָל רֶגַע בַּכַּפְתּוֹר RU לְמַעְלָה.<span class="ru" lang="ru" dir="ltr">Выбор можно изменить в любой момент кнопкой RU наверху.</span></p>
+  </div>`;
 }
 
 /* ---------------- sessions ---------------- */
@@ -595,7 +622,8 @@ app.addEventListener('click', e => {
       break;
     }
     case 'home': window.scrollTo(0, 0); renderHome(); break;
-    case 'jump': document.getElementById('book-' + el.dataset.book)?.scrollIntoView({ block: 'start', behavior: 'smooth' }); break;
+    case 'jump': jumpToBook(el.dataset.book); break;
+    case 'choose-lang': S.lang = el.dataset.lang; S.langChosen = true; save(); window.scrollTo(0, 0); renderHome(); break;
     case 'quit': stopSpeech(); renderHome(); break;
     case 'dict': renderDict(); window.scrollTo(0, 0); break;
     case 'review': startReview(); window.scrollTo(0, 0); break;
@@ -632,5 +660,5 @@ app.addEventListener('click', e => {
 });
 
 /* ---------------- boot ---------------- */
-loadCourse().then(c => { C = c; renderHome(); })
+loadCourse().then(c => { C = c; S.langChosen ? renderHome() : renderWelcome(); })
   .catch(() => { app.innerHTML = `<div class="empty">${mascot('oops')}<p>${tr('לֹא הִצְלַחְנוּ לִטְעֹן אֶת הַשִּׁעוּרִים. נַסּוּ לְרַעְנֵן אֶת הַדַּף.', 'Не удалось загрузить уроки. Попробуйте обновить страницу.')}</p></div>`; });

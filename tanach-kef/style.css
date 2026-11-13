@@ -70,6 +70,13 @@ button:focus-visible { outline: 3px solid var(--gold); outline-offset: 2px; }
 }
 
 /* ---------- top bar ---------- */
+.head {
+  position: sticky;
+  top: env(safe-area-inset-top, 0px);
+  z-index: 5;
+  background: var(--bg);
+  padding-bottom: 6px;
+}
 .topbar {
   position: sticky;
   top: env(safe-area-inset-top, 0px);
@@ -129,13 +136,32 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .nhe { font-family: var(--font-text); font-size: 20px; font-weight: 700; text-align: right; }
 
 /* ---------- map ---------- */
-.grades { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.grades { display: flex; gap: 5px; justify-content: space-between; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
 .grades::-webkit-scrollbar { display: none; }
 .grade {
   flex: none; border: 2px solid var(--line); background: var(--surface); color: var(--primary);
-  border-radius: 999px; padding: 4px 12px; font-size: 15px; font-weight: 700;
+  border-radius: 999px; padding: 3px 9px; font-size: 14px; font-weight: 700;
 }
-.book { scroll-margin-top: calc(70px + env(safe-area-inset-top, 0px)); }
+.head .topbar { position: static; }
+.book { scroll-margin-top: calc(120px + env(safe-area-inset-top, 0px)); }
+
+/* first launch */
+.welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 14px; padding-block: 32px; }
+.welcome .mascot { width: 120px; height: 120px; }
+.welcome h1 { margin: 0; font-size: 26px; text-wrap: balance; }
+.welcome > p { margin: 0; font-size: 20px; }
+.welcome .hint { font-size: 15px; }
+.welcome .hint .ru { text-align: center; }
+.choices { display: grid; gap: 12px; width: 100%; }
+.choice {
+  display: flex; flex-direction: column; gap: 4px; text-align: start;
+  border: 2px solid var(--line); background: var(--surface); border-radius: 18px;
+  padding: 16px 18px; box-shadow: 0 4px 0 var(--line);
+}
+.choice b { font-size: 21px; }
+.choice > span { color: var(--muted); font-size: 15px; }
+.choice .ru { font-size: 15px; }
+.choice:hover, .choice:focus-visible { border-color: var(--primary); box-shadow: 0 4px 0 var(--primary-deep); }
 .review-card {
   display: flex; align-items: center; gap: 12px;
   background: var(--surface); border: 2px solid var(--gold); border-radius: 18px;
