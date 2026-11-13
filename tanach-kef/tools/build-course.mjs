@@ -168,6 +168,15 @@ for (const f of files) {
         chk('s', R.s, L.story); chk('w', R.w, L.w); chk('v', R.v, L.v); chk('q', R.q, L.q || []);
         words.forEach((w, i) => { w.ru = R.w?.[i]; });
         vOut.forEach((v, i) => { v.ru = R.v?.[i]; });
+        // order / who: show the Russian translation of the verse the fragment comes from
+        const osisIdx = ref => L.v.findIndex(v => v.split(':')[0] === ref.split(':')[0]);
+        const oi = osisIdx(oRef);
+        if (oi >= 0 && R.v?.[oi]) tasks.find(t => t.type === 'order').ru = { hint: R.v[oi] };
+        else errors.push(`${where}: order verse ${oRef} is not among the lesson verses`);
+        if (L.who && L.who[0].includes('.')) {
+          const wi = osisIdx(L.who[0]);
+          if (wi >= 0 && R.v?.[wi]) tasks.find(t => t.type === 'who').ru = { hint: R.v[wi] };
+        }
         const qTasks = tasks.filter(t => t.type === 'choice');
         qTasks.forEach((t, i) => {
           const [q, opts, ex] = R.q?.[i] || [];

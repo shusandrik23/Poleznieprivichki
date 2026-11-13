@@ -433,6 +433,7 @@ function renderTask() {
   if (t.type === 'order') {
     ui.picked = ui.picked || [];
     body = `<h1>${tr('סַדְּרוּ אֶת הַמִּלִּים לְפִי הַפָּסוּק', 'Расставьте слова в порядке стиха')}</h1>
+      ${ruOn() && t.ru?.hint ? `<p class="task-tr" lang="ru" dir="ltr"><span>Перевод стиха:</span> ${esc(t.ru.hint)}</p>` : ''}
       <div class="build-line">${ui.picked.map((ti, k) => `<button class="word" data-act="unpick" data-k="${k}">${esc(t.tiles[ti])}</button>`).join('')}</div>
       <div class="bank">${t.tiles.map((w, i) => `<button class="word ${ui.picked.includes(i) ? 'used' : ''}" data-act="pick" data-i="${i}" ${ui.locked ? 'disabled' : ''}>${esc(w)}</button>`).join('')}</div>`;
     canCheck = ui.picked.length > 0;
@@ -441,6 +442,7 @@ function renderTask() {
   if (t.type === 'who') {
     body = `<h1>${tr('מִי אָמַר אֶת הַמִּלִּים הָאֵלֶּה?', 'Кто сказал эти слова?')}</h1>
       <div class="who-quote">„${esc(t.quote)}”</div>
+      ${ruOn() && t.ru?.hint ? `<p class="task-tr" lang="ru" dir="ltr"><span>Перевод стиха:</span> ${esc(t.ru.hint)}</p>` : ''}
       <div class="who-grid">${t.options.map((cid, i) => {
         const ch = C.characters[cid];
         return `<button class="opt ${ui.sel === i ? 'sel' : ''}" data-act="sel" data-i="${i}" ${ui.locked ? 'disabled' : ''}><span class="face">${ch.emoji}</span>${esc(ch.name)}${sub(ch.ru)}</button>`;

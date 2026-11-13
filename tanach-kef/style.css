@@ -135,6 +135,13 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .nhead { border-top: 0; font-weight: 700; color: var(--muted); font-size: 13px; }
 .nhe { font-family: var(--font-text); font-size: 20px; font-weight: 700; text-align: right; }
 
+.task-tr {
+  direction: ltr; text-align: right; unicode-bidi: plaintext;
+  background: var(--surface); border: 2px dashed var(--line); border-radius: 14px;
+  padding: 10px 14px; margin: 0 0 14px; font-size: 16px; line-height: 1.5;
+}
+.task-tr span { color: var(--muted); font-weight: 500; }
+
 /* ---------- map ---------- */
 .grades { display: flex; gap: 5px; justify-content: space-between; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
 .grades::-webkit-scrollbar { display: none; }
