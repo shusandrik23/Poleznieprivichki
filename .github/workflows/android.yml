@@ -1,4 +1,4 @@
-# Сборка Android-приложения (отладочный APK) при каждом обновлении ветки.
+# Сборка Android-приложений (отладочные APK) при каждом обновлении ветки: YouBoost и YouBoost Kids.
 # Готовый файл: вкладка Actions → последний запуск «Android APK» → Artifacts → youboost-debug.
 name: Android APK
 
@@ -6,6 +6,7 @@ on:
   push:
     paths-ignore:
       - 'README.md'
+      - 'kids/README.md'
   workflow_dispatch:
 
 jobs:
@@ -42,4 +43,40 @@ jobs:
         with:
           name: youboost-debug
           path: android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+  # Детское приложение YouBoost Kids (папка kids/). Готовый файл: Artifacts → youboost-kids-debug.
+  kids:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: kids
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: kids/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Сборка веб-части и перенос в Android
+        run: npm run sync
+
+      - name: Сборка APK
+        working-directory: kids/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: youboost-kids-debug
+          path: kids/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30

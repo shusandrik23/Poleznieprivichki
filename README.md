@@ -3,6 +3,8 @@
 Веб-приложение без сборки: HTML, CSS и JavaScript-модули. Работает на GitHub Pages:
 https://shusandrik23.github.io/Poleznieprivichki/
 
+**Детская версия — YouBoost Kids** (папка `kids/`): звёзды и награды от родителей, питомец, наклейки и семейные вызовы для детей 6–14 лет. Подробно — в [`kids/README.md`](kids/README.md). Сайт: https://shusandrik23.github.io/Poleznieprivichki/kids/
+
 ## Что умеет
 
 - **Привычки.** Свои или из готового списка по категориям. Каждый день отмечаете, что сделали; последние 7 дней можно исправить.

@@ -1,6 +1,6 @@
 rules_version = '2';
 
-// Правила доступа к данным YouBoost.
+// Правила доступа к данным YouBoost и YouBoost Kids.
 // Вставьте этот файл в консоли Firebase: Firestore Database → Rules → Publish.
 service cloud.firestore {
   match /databases/{db}/documents {
@@ -234,6 +234,82 @@ service cloud.firestore {
         && request.resource.data.expires <= int(request.resource.data.day) + 400;
       // удалить может автор, любой участник (вызов закончился или удаляется) или кто угодно после срока
       allow delete: if signedIn() && (resource.data.uid == me() || dayNow() > resource.data.expires || me() in challenge().participants);
+    }
+    // ===================== YouBoost Kids (папка kids/) =====================
+    // Семья: родители входят через Google, телефоны детей — анонимно по коду от родителя.
+    // Дети не видят никого вне своей семьи.
+    function kidsMemberDoc(fid) { return /databases/$(db)/documents/kidsFamilies/$(fid)/members/$(me()); }
+    function kidsMember(fid) { return signedIn() && exists(kidsMemberDoc(fid)); }
+    function kidsParent(fid) { return kidsMember(fid) && get(kidsMemberDoc(fid)).data.role == 'parent'; }
+    function notAnonymous() { return request.auth.token.firebase.sign_in_provider != 'anonymous'; }
+
+    // В какой семье пользователь
+    match /kidsUsers/{uid} {
+      allow read, delete: if signedIn() && uid == me();
+      allow create, update: if signedIn() && uid == me()
+        && request.resource.data.keys().hasOnly(['fid'])
+        && request.resource.data.fid is string;
+    }
+
+    // Коды подключения (6 символов, действуют сутки). Код знает только тот, кому его показали.
+    match /kidsCodes/{code} {
+      allow get: if signedIn();
+      allow list: if signedIn() && kidsParent(resource.data.fid);
+      allow create: if signedIn() && notAnonymous()
+        && code.matches('^[A-Z0-9]{6}$')
+        && request.resource.data.keys().hasOnly(['fid', 'role', 'kidId', 'by', 'expires'])
+        && request.resource.data.by == me()
+        && kidsParent(request.resource.data.fid)
+        && request.resource.data.role in ['parent', 'child']
+        && (request.resource.data.role == 'parent' || exists(/databases/$(db)/documents/kidsFamilies/$(request.resource.data.fid)/kids/$(request.resource.data.kidId)))
+        && request.resource.data.expires is timestamp
+        && request.resource.data.expires <= request.time + duration.value(25, 'h');
+      allow delete: if signedIn() && kidsParent(resource.data.fid);
+    }
+
+    match /kidsFamilies/{fid} {
+      allow read: if kidsMember(fid);
+      allow create: if signedIn() && notAnonymous()
+        && request.resource.data.owner == me()
+        && getAfter(kidsMemberDoc(fid)).data.role == 'parent';
+      // владельца сменить нельзя
+      allow update: if kidsParent(fid) && request.resource.data.owner == resource.data.owner;
+      allow delete: if signedIn() && resource.data.owner == me();
+
+      // Участники: родители и телефоны детей
+      match /members/{uid} {
+        function code() { return get(/databases/$(db)/documents/kidsCodes/$(request.resource.data.code)).data; }
+        allow read: if kidsMember(fid);
+        allow create: if signedIn() && uid == me() && (
+          // создатель семьи
+          (request.resource.data.keys().hasOnly(['role', 'name'])
+            && request.resource.data.role == 'parent'
+            && notAnonymous()
+            && getAfter(/databases/$(db)/documents/kidsFamilies/$(fid)).data.owner == me())
+          // по действующему коду
+          || (request.resource.data.code is string
+            && code().fid == fid
+            && code().expires > request.time
+            && code().role == request.resource.data.role
+            && ((request.resource.data.role == 'child'
+                  && request.resource.data.keys().hasOnly(['role', 'kidId', 'code', 'name'])
+                  && request.resource.data.kidId == code().kidId)
+                || (request.resource.data.role == 'parent'
+                  && notAnonymous()
+                  && request.resource.data.keys().hasOnly(['role', 'code', 'name'])))));
+        allow delete: if signedIn() && (uid == me() || kidsParent(fid));
+      }
+
+      // Дети: родители меняют всё; телефон ребёнка — только свои отметки, запросы наград, вызовы и питомца
+      match /kids/{kid} {
+        allow read: if kidsMember(fid);
+        allow create, delete: if kidsParent(fid);
+        allow update: if kidsParent(fid)
+          || (kidsMember(fid)
+            && get(kidsMemberDoc(fid)).data.role == 'child'
+            && get(kidsMemberDoc(fid)).data.kidId == kid
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['marks', 'requests', 'chMarks', 'pet']));
+      }
     }
   }
 }

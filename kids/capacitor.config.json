@@ -1,0 +1,8 @@
+{
+  "appId": "com.youboost.kids",
+  "appName": "YouBoost Kids",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#fff7ec"
+  }
+}
