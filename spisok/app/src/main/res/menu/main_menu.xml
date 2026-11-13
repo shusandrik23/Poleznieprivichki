@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <menu xmlns:android="http://schemas.android.com/apk/res/android">
+    <item android:id="@+id/action_add_category" android:title="@string/menu_add_category" />
+    <item android:id="@+id/action_edit_category" android:title="@string/menu_edit_category" />
     <item android:id="@+id/action_import" android:title="@string/menu_import" />
     <item android:id="@+id/action_export" android:title="@string/menu_export" />
     <item android:id="@+id/action_bot_sync" android:title="@string/menu_bot_sync" android:visible="false" />

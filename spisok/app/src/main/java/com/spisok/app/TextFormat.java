@@ -7,7 +7,6 @@ import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Locale;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
@@ -32,42 +31,38 @@ public final class TextFormat {
 
     private TextFormat() {}
 
-    public static List<Entry> parse(String text, int defaultCategory) {
+    /** Находит (или создаёт) категорию по названию из заголовка. */
+    public interface Resolver {
+        /** @return id категории или -1; create — можно ли создать новую */
+        int resolve(String name, boolean create);
+    }
+
+    public static List<Entry> parse(String text, int defaultCategory, Resolver resolver) {
         List<Entry> out = new ArrayList<>();
         int category = defaultCategory;
         for (String raw : text.replace("\uFEFF", "").split("\\r?\\n|\\r")) {
             String line = raw.trim();
             if (line.isEmpty()) continue;
 
-            int header = headerCategory(line);
-            if (header >= 0) {
-                category = header;
+            if (line.startsWith("#")) {
+                // «# Книги» — заголовок; незнакомый заголовок создаёт новую категорию
+                int id = resolver.resolve(line.replaceFirst("^#+", "").trim(), true);
+                if (id >= 0) category = id;
                 continue;
             }
-            if (line.startsWith("#")) continue; // неизвестный заголовок или комментарий
+            if (line.endsWith(":") && line.length() <= 40 && !URL.matcher(line).find()) {
+                // «Подкасты:» — заголовок, только если такая категория уже есть
+                int id = resolver.resolve(line.substring(0, line.length() - 1).trim(), false);
+                if (id >= 0) {
+                    category = id;
+                    continue;
+                }
+            }
 
             Entry e = parseLine(line, category);
             if (e != null) out.add(e);
         }
         return out;
-    }
-
-    /** Номер списка, если строка — заголовок («# Книги», «Подкасты:»), иначе -1. */
-    static int headerCategory(String line) {
-        String t;
-        if (line.startsWith("#")) {
-            t = line.replaceFirst("^#+", "").trim();
-        } else if (line.endsWith(":") && line.length() <= 40 && !URL.matcher(line).find()) {
-            t = line.substring(0, line.length() - 1).trim();
-        } else {
-            return -1;
-        }
-        t = t.toLowerCase(Locale.ROOT);
-        if (t.contains("книг") || t.contains("book") || t.contains("чита")) return Entry.BOOKS;
-        if (t.contains("подкаст") || t.contains("podcast") || t.contains("слуша")) return Entry.PODCASTS;
-        if (t.contains("дел") || t.contains("задач") || t.contains("todo") || t.contains("to do")
-                || t.contains("task")) return Entry.TODO;
-        return -1;
     }
 
     static Entry parseLine(String line, int category) {
@@ -121,12 +116,12 @@ public final class TextFormat {
     }
 
     /** Текст для «Сохранить в файл» — его же можно загрузить обратно. */
-    public static String format(List<Entry> all, String[] names) {
+    public static String format(List<Entry> all, List<Category> categories) {
         StringBuilder sb = new StringBuilder();
-        for (int cat = 0; cat < names.length; cat++) {
-            sb.append("# ").append(names[cat]).append('\n');
+        for (Category cat : categories) {
+            sb.append("# ").append(cat.name).append('\n');
             for (Entry e : all) {
-                if (e.category != cat) continue;
+                if (e.category != cat.id) continue;
                 sb.append(e.done ? "[x] " : "[ ] ").append(clean(e.title));
                 if (!e.link.isEmpty() || !e.note.isEmpty()) sb.append(" | ").append(clean(e.link));
                 if (!e.note.isEmpty()) sb.append(" | ").append(clean(e.note));

@@ -8,7 +8,6 @@ import android.view.Menu;
 import android.view.MenuItem;
 import android.view.View;
 import android.widget.EditText;
-import android.widget.RadioGroup;
 import android.widget.TextView;
 import android.widget.Toast;
 
@@ -25,6 +24,8 @@ import androidx.recyclerview.widget.LinearLayoutManager;
 import androidx.recyclerview.widget.RecyclerView;
 
 import com.google.android.material.appbar.MaterialToolbar;
+import com.google.android.material.chip.Chip;
+import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.color.DynamicColors;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
 import com.google.android.material.floatingactionbutton.FloatingActionButton;
@@ -43,17 +44,14 @@ import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity implements EntryAdapter.Listener {
 
-    private static final int[] TAB_NAMES = {R.string.tab_books, R.string.tab_podcasts, R.string.tab_todo};
-    private static final int[] EMPTY_TEXTS = {R.string.empty_books, R.string.empty_podcasts, R.string.empty_todo};
-    private static final int[] RADIO_IDS = {R.id.cat_books, R.id.cat_podcasts, R.id.cat_todo};
-
     private Store store;
     private EntryAdapter adapter;
     private TabLayout tabs;
     private RecyclerView list;
     private TextView empty;
     private FloatingActionButton fab;
-    private int current = 0;
+    private int current = 0;          // id открытой категории
+    private boolean rebuildingTabs;
 
     private TelegramBot bot;
     private final ExecutorService net = Executors.newSingleThreadExecutor();
@@ -80,7 +78,8 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
         MaterialToolbar toolbar = findViewById(R.id.toolbar);
         setSupportActionBar(toolbar);
 
-        store = new Store(this);
+        store = new Store(this, new String[]{
+                getString(R.string.tab_books), getString(R.string.tab_podcasts), getString(R.string.tab_todo)});
         bot = new TelegramBot(this);
 
         list = findViewById(R.id.list);
@@ -92,11 +91,11 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
         list.setLayoutManager(new LinearLayoutManager(this));
         list.setAdapter(adapter);
 
-        if (savedInstanceState != null) current = savedInstanceState.getInt("tab", 0);
-        for (int i = 0; i < TAB_NAMES.length; i++) tabs.addTab(tabs.newTab(), i == current);
+        current = savedInstanceState != null ? savedInstanceState.getInt("tab", store.firstId()) : store.firstId();
         tabs.addOnTabSelectedListener(new TabLayout.OnTabSelectedListener() {
             @Override public void onTabSelected(TabLayout.Tab tab) {
-                current = tab.getPosition();
+                if (rebuildingTabs || tab.getTag() == null) return;
+                current = (Integer) tab.getTag();
                 refresh();
             }
             @Override public void onTabUnselected(TabLayout.Tab tab) {}
@@ -112,7 +111,7 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
             if (uri != null) exportTo(uri);
         });
 
-        refresh();
+        rebuildTabs();
         if (savedInstanceState == null) handleIntent(getIntent());
     }
 
@@ -142,17 +141,35 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
 
     // ---------- список ----------
 
+    /** Пересоздаёт вкладки по списку категорий (после добавления, удаления, переименования). */
+    private void rebuildTabs() {
+        rebuildingTabs = true;
+        tabs.removeAllTabs();
+        if (store.find(current) == null) current = store.firstId();
+        for (Category c : store.categories()) {
+            TabLayout.Tab tab = tabs.newTab().setTag(c.id);
+            tabs.addTab(tab, c.id == current);
+            tab.view.setOnLongClickListener(v -> {
+                showCategoryDialog(store.find(c.id));
+                return true;
+            });
+        }
+        rebuildingTabs = false;
+        refresh();
+    }
+
     private void refresh() {
         List<Entry> items = store.byCategory(current);
         adapter.submit(items);
-        empty.setText(EMPTY_TEXTS[current]);
+        empty.setText(getString(R.string.empty_list, store.name(current)));
         empty.setVisibility(items.isEmpty() ? View.VISIBLE : View.GONE);
 
-        for (int i = 0; i < TAB_NAMES.length; i++) {
+        for (int i = 0; i < tabs.getTabCount(); i++) {
             TabLayout.Tab tab = tabs.getTabAt(i);
-            if (tab == null) continue;
-            int open = store.countOpen(i);
-            String name = getString(TAB_NAMES[i]);
+            if (tab == null || tab.getTag() == null) continue;
+            int id = (Integer) tab.getTag();
+            int open = store.countOpen(id);
+            String name = store.name(id);
             tab.setText(open > 0 ? getString(R.string.tab_with_count, name, open) : name);
         }
     }
@@ -160,10 +177,16 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
     private void selectTab(int category) {
         if (category == current) {
             refresh();
-        } else {
-            TabLayout.Tab tab = tabs.getTabAt(category);
-            if (tab != null) tab.select(); // вызовет refresh()
+            return;
         }
+        for (int i = 0; i < tabs.getTabCount(); i++) {
+            TabLayout.Tab tab = tabs.getTabAt(i);
+            if (tab != null && Integer.valueOf(category).equals(tab.getTag())) {
+                tab.select(); // вызовет refresh()
+                return;
+            }
+        }
+        refresh();
     }
 
     @Override
@@ -197,12 +220,22 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
         EditText inTitle = v.findViewById(R.id.input_title);
         EditText inLink = v.findViewById(R.id.input_link);
         EditText inNote = v.findViewById(R.id.input_note);
-        RadioGroup group = v.findViewById(R.id.category);
+        ChipGroup group = v.findViewById(R.id.category);
 
         inTitle.setText(title);
         inLink.setText(link);
         inNote.setText(note);
-        group.check(RADIO_IDS[existing != null ? existing.category : current]);
+        int selected = existing != null ? existing.category : current;
+        for (Category c : store.categories()) {
+            Chip chip = new Chip(this);
+            chip.setId(View.generateViewId());
+            chip.setTag(c.id);
+            chip.setText(c.name);
+            chip.setCheckable(true);
+            chip.setCheckedIconVisible(true);
+            group.addView(chip);
+            if (c.id == selected) chip.setChecked(true);
+        }
 
         MaterialAlertDialogBuilder builder = new MaterialAlertDialogBuilder(this)
                 .setTitle(existing == null ? R.string.add : R.string.edit)
@@ -223,9 +256,8 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
             if (t.isEmpty()) t = l;
 
             int cat = current;
-            for (int i = 0; i < RADIO_IDS.length; i++) {
-                if (RADIO_IDS[i] == group.getCheckedRadioButtonId()) cat = i;
-            }
+            View checked = group.findViewById(group.getCheckedChipId());
+            if (checked != null && checked.getTag() != null) cat = (Integer) checked.getTag();
 
             Entry e = existing != null ? existing : new Entry();
             e.title = t;
@@ -258,6 +290,80 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
                 .show();
     }
 
+    // ---------- категории ----------
+
+    /** Новая категория (existing == null) или переименование / порядок / удаление. */
+    private void showCategoryDialog(Category existing) {
+        View v = getLayoutInflater().inflate(R.layout.dialog_category, null);
+        TextInputLayout layout = v.findViewById(R.id.name_layout);
+        EditText input = v.findViewById(R.id.input_name);
+        View moveRow = v.findViewById(R.id.move_row);
+        if (existing != null) {
+            input.setText(existing.name);
+            input.setSelection(input.length());
+            v.findViewById(R.id.move_left).setOnClickListener(b -> {
+                store.moveCategory(existing.id, -1);
+                rebuildTabs();
+            });
+            v.findViewById(R.id.move_right).setOnClickListener(b -> {
+                store.moveCategory(existing.id, 1);
+                rebuildTabs();
+            });
+        } else {
+            moveRow.setVisibility(View.GONE);
+        }
+
+        MaterialAlertDialogBuilder b = new MaterialAlertDialogBuilder(this)
+                .setTitle(existing == null ? R.string.category_new : R.string.category_edit)
+                .setView(v)
+                .setPositiveButton(R.string.save, null)
+                .setNegativeButton(R.string.cancel, null);
+        if (existing != null) b.setNeutralButton(R.string.delete, (d, w) -> confirmDeleteCategory(existing));
+        AlertDialog dialog = b.create();
+        dialog.setOnShowListener(x -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(btn -> {
+            String name = Store.cleanName(input.getText().toString());
+            if (name.isEmpty()) {
+                layout.setError(getString(R.string.category_need_name));
+                return;
+            }
+            Category same = store.findByName(name);
+            if (same != null && (existing == null || same.id != existing.id)) {
+                layout.setError(getString(R.string.category_exists));
+                return;
+            }
+            if (existing == null) {
+                current = store.addCategory(name).id;
+            } else {
+                store.renameCategory(existing.id, name);
+            }
+            dialog.dismiss();
+            rebuildTabs();
+        }));
+        input.requestFocus();
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setSoftInputMode(android.view.WindowManager.LayoutParams.SOFT_INPUT_STATE_VISIBLE);
+        }
+        dialog.show();
+    }
+
+    private void confirmDeleteCategory(Category c) {
+        if (store.categories().size() <= 1) {
+            Toast.makeText(this, R.string.category_last, Toast.LENGTH_LONG).show();
+            return;
+        }
+        int n = store.count(c.id);
+        String msg = n == 0 ? getString(R.string.category_delete_empty, c.name)
+                : getString(R.string.category_delete_items, c.name, n);
+        new MaterialAlertDialogBuilder(this)
+                .setMessage(msg)
+                .setPositiveButton(R.string.delete, (d, w) -> {
+                    store.removeCategory(c.id);
+                    rebuildTabs();
+                })
+                .setNegativeButton(R.string.cancel, null)
+                .show();
+    }
+
     // ---------- меню ----------
 
     @Override
@@ -280,6 +386,12 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
             return true;
         } else if (id == R.id.action_export) {
             saveFile.launch("мой-список.txt");
+            return true;
+        } else if (id == R.id.action_add_category) {
+            showCategoryDialog(null);
+            return true;
+        } else if (id == R.id.action_edit_category) {
+            showCategoryDialog(store.find(current));
             return true;
         } else if (id == R.id.action_bot) {
             showBotDialog();
@@ -329,7 +441,9 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
             return;
         }
 
-        List<Entry> parsed = TextFormat.parse(text, current);
+        int before = store.categories().size();
+        List<Entry> parsed = TextFormat.parse(text, current, store);
+        if (store.categories().size() != before) rebuildTabs(); // в файле были новые категории
         if (parsed.isEmpty()) {
             Toast.makeText(this, R.string.import_nothing, Toast.LENGTH_LONG).show();
             return;
@@ -356,9 +470,7 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
     }
 
     private void exportTo(Uri uri) {
-        String[] names = new String[TAB_NAMES.length];
-        for (int i = 0; i < names.length; i++) names[i] = getString(TAB_NAMES[i]);
-        String text = TextFormat.format(store.all(), names);
+        String text = TextFormat.format(store.all(), store.categories());
         try (OutputStream out = getContentResolver().openOutputStream(uri, "wt")) {
             if (out == null) throw new IllegalStateException("no stream");
             out.write(text.getBytes(StandardCharsets.UTF_8));
@@ -381,19 +493,12 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
 
     // ---------- Telegram-бот ----------
 
-    private String[] categoryNames() {
-        String[] names = new String[TAB_NAMES.length];
-        for (int i = 0; i < names.length; i++) names[i] = getString(TAB_NAMES[i]);
-        return names;
-    }
-
     private void syncBot(boolean manual) {
         if (syncing) return;
         syncing = true;
-        String[] names = categoryNames();
         net.execute(() -> {
             try {
-                TelegramBot.Fetch f = bot.fetch(names);
+                TelegramBot.Fetch f = bot.fetch();
                 runOnUiThread(() -> applyBot(f, manual));
             } catch (Exception ex) {
                 runOnUiThread(() -> {
@@ -409,7 +514,7 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
 
     private void applyBot(TelegramBot.Fetch f, boolean manual) {
         syncing = false;
-        String[] names = categoryNames();
+        int catsBefore = store.categories().size();
         List<long[]> chats = new ArrayList<>();
         List<String> replies = new ArrayList<>();
         int total = 0, lastCat = -1;
@@ -421,13 +526,15 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
             if (in.help) r.append(getString(R.string.bot_help_reply)).append("\n\n");
             List<String> added = new ArrayList<>();
             List<String> dupes = new ArrayList<>();
-            for (Entry e : in.entries) {
+            List<Entry> entries = new ArrayList<>();
+            for (TelegramBot.Raw raw : in.messages) entries.addAll(TelegramBot.parse(raw, store));
+            for (Entry e : entries) {
                 if (store.exists(e.category, e.title)) {
                     dupes.add(e.title);
                     continue;
                 }
                 store.add(e);
-                added.add("✅ " + names[e.category] + ": " + e.title);
+                added.add("✅ " + store.name(e.category) + ": " + e.title);
                 if (lastCat >= 0 && lastCat != e.category) sameCat = false;
                 lastCat = e.category;
             }
@@ -442,6 +549,7 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
             }
         }
         bot.saveOffset(f.nextOffset);
+        if (store.categories().size() != catsBefore) rebuildTabs();
 
         if (total > 0) {
             selectTab(sameCat ? lastCat : current);

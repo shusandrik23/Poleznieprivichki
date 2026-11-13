@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
     android:layout_width="match_parent"
     android:layout_height="wrap_content">
 
@@ -57,29 +58,12 @@
             android:text="@string/list_label"
             android:textAppearance="?attr/textAppearanceLabelLarge" />
 
-        <RadioGroup
+        <com.google.android.material.chip.ChipGroup
             android:id="@+id/category"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:orientation="horizontal">
-
-            <RadioButton
-                android:id="@+id/cat_books"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/tab_books" />
-
-            <RadioButton
-                android:id="@+id/cat_podcasts"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/tab_podcasts" />
-
-            <RadioButton
-                android:id="@+id/cat_todo"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:text="@string/tab_todo" />
-        </RadioGroup>
+            android:layout_marginTop="4dp"
+            app:selectionRequired="true"
+            app:singleSelection="true" />
     </LinearLayout>
 </ScrollView>

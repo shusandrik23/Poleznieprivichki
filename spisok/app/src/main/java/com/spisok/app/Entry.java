@@ -3,7 +3,7 @@ package com.spisok.app;
 import org.json.JSONException;
 import org.json.JSONObject;
 
-/** Один пункт списка. category: 0 — книги, 1 — подкасты, 2 — дела. */
+/** Один пункт списка. category — id категории; 0, 1, 2 — стандартные книги, подкасты, дела. */
 public class Entry {
     public static final int BOOKS = 0;
     public static final int PODCASTS = 1;
@@ -32,7 +32,7 @@ public class Entry {
     static Entry fromJson(JSONObject o) {
         Entry e = new Entry();
         e.id = o.optLong("id");
-        e.category = Math.max(0, Math.min(2, o.optInt("category")));
+        e.category = o.optInt("category");
         e.title = o.optString("title", "");
         e.link = o.optString("link", "");
         e.note = o.optString("note", "");

@@ -32,15 +32,21 @@ public class TelegramBot {
     private static final String API = "https://api.telegram.org/";
     private static final int MAX_FILE = 1_000_000;
 
-    private static final Pattern KEYWORD = Pattern.compile(
-            "^(книга|книги|книгу|прочитать|почитать|book|подкаст|подкасты|послушать|podcast|"
-                    + "дело|дела|задача|сделать|todo)(?:$|[\\s:.,—–-]+)",
-            Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE);
+    /** Первое слово строки и остальное: «фильм Дюна», «Книга: Sapiens». */
+    private static final Pattern FIRST_WORD = Pattern.compile("^([^\\s:.,—–|-]+)[\\s:.,—–-]+(.+)$");
+
+    /** Одно сообщение боту, ещё не разобранное (разбирается в главном потоке, где известны категории). */
+    public static class Raw {
+        public String text = "";
+        public String hiddenUrl = "";
+        public boolean forwarded;
+        public boolean file;
+    }
 
     /** Сообщения из одного чата, разобранные в пункты. */
     public static class Incoming {
         public long chatId;
-        public List<Entry> entries = new ArrayList<>();
+        public List<Raw> messages = new ArrayList<>();
         public boolean help;
         public boolean justBound;
         public String error;
@@ -86,7 +92,7 @@ public class TelegramBot {
         return "@" + r.getJSONObject("result").optString("username");
     }
 
-    public Fetch fetch(String[] categoryNames) throws IOException, JSONException {
+    public Fetch fetch() throws IOException, JSONException {
         String token = token();
         Map<String, String> p = new LinkedHashMap<>();
         if (offset() > 0) p.put("offset", String.valueOf(offset()));
@@ -121,7 +127,7 @@ public class TelegramBot {
             byChat.put(chatId, in);
 
             try {
-                readMessage(token, msg, in, categoryNames);
+                readMessage(token, msg, in);
             } catch (Exception ex) {
                 in.error = "Не получилось прочитать сообщение: " + ex.getMessage();
             }
@@ -130,7 +136,7 @@ public class TelegramBot {
         return f;
     }
 
-    private void readMessage(String token, JSONObject msg, Incoming in, String[] names)
+    private void readMessage(String token, JSONObject msg, Incoming in)
             throws IOException, JSONException {
         String text = msg.has("text") ? msg.optString("text") : msg.optString("caption", "");
         String hiddenUrl = hiddenUrl(msg);
@@ -150,7 +156,10 @@ public class TelegramBot {
                 p.put("file_id", doc.getString("file_id"));
                 String path = call(token, "getFile", p).getJSONObject("result").getString("file_path");
                 byte[] bytes = download(API + "file/bot" + token + "/" + path);
-                in.entries.addAll(TextFormat.parse(TextFormat.decode(bytes), Entry.TODO));
+                Raw r = new Raw();
+                r.text = TextFormat.decode(bytes);
+                r.file = true;
+                in.messages.add(r);
             }
             return;
         }
@@ -163,35 +172,55 @@ public class TelegramBot {
             return;
         }
 
-        boolean forwarded = msg.has("forward_origin") || msg.has("forward_date");
-        if (forwarded) {
-            Entry e = wholeMessage(trimmed, hiddenUrl);
-            if (e != null) in.entries.add(e);
-        } else {
-            in.entries.addAll(parseText(trimmed, hiddenUrl, names));
-        }
+        Raw r = new Raw();
+        r.text = trimmed;
+        r.hiddenUrl = hiddenUrl;
+        r.forwarded = msg.has("forward_origin") || msg.has("forward_date");
+        in.messages.add(r);
     }
 
-    /** Обычное сообщение: каждая строка — пункт, слово в начале выбирает список. */
-    static List<Entry> parseText(String text, String hiddenUrl, String[] names) {
+    // ---------- разбор (главный поток) ----------
+
+    public static List<Entry> parse(Raw r, Store store) {
+        int def = defaultCategory(store);
+        if (r.file) return TextFormat.parse(r.text, def, store);
+        if (r.forwarded) {
+            List<Entry> one = new ArrayList<>();
+            Entry e = wholeMessage(r.text, r.hiddenUrl, store);
+            if (e != null) one.add(e);
+            return one;
+        }
+        return parseText(r.text, r.hiddenUrl, store);
+    }
+
+    /** Без подсказки пункт идёт в «Дела» (или в первую категорию, если «Дела» удалили). */
+    static int defaultCategory(Store store) {
+        return store.idOr(Entry.TODO, store.firstId());
+    }
+
+    /** Обычное сообщение: каждая строка — пункт, первое слово может выбрать категорию. */
+    static List<Entry> parseText(String text, String hiddenUrl, Store store) {
         StringBuilder sb = new StringBuilder();
-        int defaultCat = -1;
+        boolean hasKeyword = false;
         for (String raw : text.split("\\r?\\n")) {
             String line = raw.trim();
-            Matcher m = KEYWORD.matcher(line);
-            if (m.find()) {
-                int cat = keywordCategory(m.group(1));
-                if (defaultCat < 0) defaultCat = cat;
-                sb.append("# ").append(names[cat]).append('\n');
-                line = line.substring(m.end()).trim();
+            Matcher m = FIRST_WORD.matcher(line);
+            if (m.matches()) {
+                int cat = store.matchCategory(m.group(1));
+                if (cat >= 0) {
+                    hasKeyword = true;
+                    sb.append("# ").append(store.name(cat)).append('\n');
+                    line = m.group(2).trim();
+                }
             }
             sb.append(line).append('\n');
         }
-        if (defaultCat < 0) {
+        int def = defaultCategory(store);
+        if (!hasKeyword) {
             String url = TextFormat.findUrl(text);
-            defaultCat = guessCategory(url.isEmpty() ? hiddenUrl : url);
+            def = guessCategory(url.isEmpty() ? hiddenUrl : url, store);
         }
-        List<Entry> list = TextFormat.parse(sb.toString(), defaultCat);
+        List<Entry> list = TextFormat.parse(sb.toString(), def, store);
         if (list.size() == 1 && list.get(0).link.isEmpty() && !hiddenUrl.isEmpty()) {
             list.get(0).link = hiddenUrl;
         }
@@ -199,14 +228,14 @@ public class TelegramBot {
     }
 
     /** Пересланный пост целиком — один пункт: первая строка — название, дальше — описание. */
-    static Entry wholeMessage(String text, String hiddenUrl) {
+    static Entry wholeMessage(String text, String hiddenUrl, Store store) {
         String url = TextFormat.findUrl(text);
         if (url.isEmpty()) url = hiddenUrl;
         String[] lines = text.split("\\r?\\n");
         String title = "";
         StringBuilder note = new StringBuilder();
         for (String l : lines) {
-            String s = l.replace(url.isEmpty() ? "\u0000" : url, "").trim();
+            String s = url.isEmpty() ? l.trim() : l.replace(url, "").trim();
             if (s.isEmpty()) continue;
             if (title.isEmpty()) title = s;
             else if (note.length() < 200) note.append(note.length() > 0 ? " " : "").append(s);
@@ -214,31 +243,25 @@ public class TelegramBot {
         if (title.isEmpty()) title = url;
         if (title.isEmpty()) return null;
         Entry e = new Entry();
-        e.category = guessCategory(url);
+        e.category = guessCategory(url, store);
         e.title = cut(title, 120);
         e.link = url;
         e.note = cut(note.toString(), 200);
         return e;
     }
 
-    static int keywordCategory(String word) {
-        String w = word.toLowerCase(Locale.ROOT);
-        if (w.startsWith("книг") || w.contains("чита") || w.equals("book")) return Entry.BOOKS;
-        if (w.startsWith("подкаст") || w.equals("послушать") || w.equals("podcast")) return Entry.PODCASTS;
-        return Entry.TODO;
-    }
-
     /** Без слова-подсказки: по ссылке пытаемся понять, подкаст это или книга. */
-    static int guessCategory(String url) {
+    static int guessCategory(String url, Store store) {
+        int def = defaultCategory(store);
         String u = url.toLowerCase(Locale.ROOT);
-        if (u.isEmpty()) return Entry.TODO;
+        if (u.isEmpty()) return def;
         String[] podcasts = {"podcast", "castbox", "music.yandex", "spotify", "soundcloud",
                 "anchor.fm", "pca.st", "overcast", "podster", "mave.digital", "zvuk.com"};
-        for (String s : podcasts) if (u.contains(s)) return Entry.PODCASTS;
+        for (String s : podcasts) if (u.contains(s)) return store.idOr(Entry.PODCASTS, def);
         String[] books = {"litres", "bookmate", "goodreads", "labirint", "ozon.ru/product/kniga",
                 "chitai-gorod", "mybook", "flibusta", "books.yandex", "author.today"};
-        for (String s : books) if (u.contains(s)) return Entry.BOOKS;
-        return Entry.TODO;
+        for (String s : books) if (u.contains(s)) return store.idOr(Entry.BOOKS, def);
+        return def;
     }
 
     private static String hiddenUrl(JSONObject msg) {
