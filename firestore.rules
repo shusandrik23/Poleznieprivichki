@@ -68,6 +68,12 @@ service cloud.firestore {
     }
 
     // Личные данные (все отметки) — только владельцу.
+    // YouBoost Plus: выдаёт только сервер (акции, оплата), владелец может читать.
+    match /plus/{uid} {
+      allow read: if signedIn() && uid == me();
+      allow write: if false;
+    }
+
     match /users/{uid} {
       allow read, write: if signedIn() && uid == me();
 

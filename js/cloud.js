@@ -3,6 +3,7 @@ import { firebaseConfig, appleSignInEnabled } from '../firebase-config.js';
 import { streaks, challengeProgress, todayNumber, dateKey } from './core.js';
 import { keyOf, keyOfName, normKey } from './catalog.js';
 import * as I from './i18n.js';
+import { setServerPlus } from './plans.js';
 import { tournamentById, tourProgress, FLAG_LIMIT } from './tournaments.js';
 import { isNative, hasNativeGoogle, nativeGoogleIdToken, nativeSignOut, appUrl, bridgeCheck, pluginHasMethod } from './native.js';
 
@@ -154,9 +155,17 @@ async function onUser(user) {
     profile: user ? undefined : null, settings: { ...DEFAULT_SETTINGS },
     incoming: [], outgoing: [], friends: [], friendStats: {}, challenges: [], joined: [], referrals: 0,
   });
+  setServerPlus(0);
   changed();
   if (!user) return;
   const uid = user.uid;
+
+  // Plus, выданный сервером (акции, позже — оплата). Писать в plus/{uid} может только сервер.
+  unsubs.push(fb.onSnapshot(fb.doc(db, 'plus', uid), snap => {
+    const until = snap.exists() ? snap.data().until : null;
+    setServerPlus(until?.toMillis ? until.toMillis() : 0);
+    changed();
+  }, () => {}));
 
   unsubs.push(fb.onSnapshot(fb.query(fb.collection(db, 'referrals'), fb.where('by', '==', uid)), snap => {
     social.referrals = snap.size;
@@ -243,6 +252,8 @@ function mergeStates(remote, local) {
     if (rh) {
       Object.assign(rh.done, lh.done);
       if (lh.goal && !rh.goal) rh.goal = lh.goal;
+      if (lh.reminders?.length && !rh.reminders?.length) rh.reminders = lh.reminders;
+      if (lh.created && (!rh.created || lh.created < rh.created)) rh.created = lh.created;
     } else {
       out.push({ ...lh, done: { ...lh.done } });
     }

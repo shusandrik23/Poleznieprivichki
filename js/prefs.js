@@ -9,7 +9,7 @@ export const THEMES = {
   purple: { accent: '#7b5cc0', grad: ['#a08ad6', '#5e44a0'], swatch: '#d9cff2' },
 };
 
-const DEFAULTS = { theme: 'green', reminder: { on: false, time: '20:00' }, notifyChallenges: true };
+const DEFAULTS = { theme: 'green', reminder: { on: false, time: '20:00' }, risk: { on: false, time: '21:00' }, notifyChallenges: true };
 
 function load() {
   try { return { ...DEFAULTS, ...JSON.parse(localStorage.getItem(PREFS_KEY) || '{}') }; } catch (err) { return { ...DEFAULTS }; }

@@ -5,9 +5,11 @@ import { t, pw, num, lang, setLang, locale, LANGS } from './i18n.js';
 import { CATEGORIES, catalogName, keyOf, keyOfName, normKey, displayName, nameOfKey } from './catalog.js';
 import { factFor } from './facts.js';
 import { quoteFor } from './quotes.js';
-import { PLANS, goalLimit } from './plans.js';
+import { PLANS, goalLimit, hasPlus, plusUntil, startTrial, trialUsed, PLUS_FEATURES } from './plans.js';
+import { tipFor } from './tips.js';
+import { habitStats, HEAT_WEEKS } from './stats.js';
 import { prefs, savePrefs, applyTheme, theme, THEMES } from './prefs.js';
-import { isNative, hasNativeGoogle, appUrl, PUBLIC_URL, nativeShare, copyText, openExternal, onBackButton, onAppUrlOpen, scheduleDailyReminder, cancelDailyReminder, notifyNow, registerPush, unregisterPush } from './native.js';
+import { isNative, hasNativeGoogle, appUrl, PUBLIC_URL, nativeShare, copyText, openExternal, onBackButton, onAppUrlOpen, scheduleDailyReminder, cancelDailyReminder, notifyNow, replaceScheduled, registerPush, unregisterPush } from './native.js';
 import { tournamentsAround, tournamentStatus, canJoin, FLAG_LIMIT, tourProgress } from './tournaments.js';
 
 const STORAGE_KEY = 'habit-trainer-v1';
@@ -50,6 +52,7 @@ let challengeFriend = '';   // выбранный соперник в форме
 let challengeHabit = '';    // выбранная привычка в форме вызова
 let factOffset = 0;         // «ещё факт»
 let sharing = null;         // id привычки с открытой панелью «поделиться»
+let statsOpen = null;       // id привычки с открытой статистикой (Plus)
 let suggestions = null;     // случайные соперники
 let suggestionsLoading = false;
 let sentTo = {};            // кому уже бросили вызов из подборки
@@ -81,7 +84,7 @@ function addHabit(name, { silent } = {}) {
     if (!silent) alert(t('habit.exists', { name: displayName(name) }));
     return false;
   }
-  state.habits.push({ id: newId(), name, done: {} });
+  state.habits.push({ id: newId(), name, done: {}, created: dateKey(new Date()) });
   save(); render();
   return true;
 }
@@ -219,6 +222,7 @@ function render() {
   renderInviteBanner();
   renderAppAuth();
 
+  syncScheduled();
   if (tab === 'habits') renderHabits();
   if (tab === 'friends') renderFriends();
   if (tab === 'challenges') renderChallenges();
@@ -245,6 +249,108 @@ function friendsOnHabit(h) {
   return out.sort((a, b) => b.cur - a.cur);
 }
 
+// ---------- YouBoost Plus: статистика, советы, напоминания ----------
+const WEEKDAY_BASE = 4;   // день № 4 от 1970-01-01 — понедельник 5 января
+const weekdayName = (i, style = 'short') => new Date((WEEKDAY_BASE + i) * 86400000).toLocaleDateString(locale(), { weekday: style, timeZone: 'UTC' });
+const habitCatalogId = h => { const k = keyOf(h); return k.startsWith('c:') ? k.slice(2) : null; };
+
+function statsPanelHtml(h) {
+  const today = todayNumber();
+  const st = habitStats(h, today);
+  const heat = [];
+  for (let w = 0; w < HEAT_WEEKS; w++) for (let d = 0; d < 7; d++) heat.push(`<i class="hc ${st.heat[w * 7 + d]}" style="grid-column:${w + 1};grid-row:${d + 1}"></i>`);
+  const maxM = Math.max(1, ...st.months.map(m => m.count));
+  const monthName = m => new Date(Date.UTC(m.y, m.m - 1, 1)).toLocaleDateString(locale(), { month: 'short', timeZone: 'UTC' });
+  const rems = h.reminders || [];
+  return `<div class="panel stats-panel">
+    <p class="tip">💡 ${e(tipFor(habitCatalogId(h), today))}</p>
+    <div class="stat-tiles">
+      <div><b>${st.total}</b><span>${t('stats.totalDays', { days: pw(st.total, 'day') })}</span></div>
+      <div><b>${st.rate7}%</b><span>${t('stats.rate7')}</span></div>
+      <div><b>${st.rate30}%</b><span>${t('stats.rate30')}</span></div>
+      <div><b>${st.rateAll}%</b><span>${t('stats.rateAll', { n: st.span, days: pw(st.span, 'day') })}</span></div>
+    </div>
+    <h4>${t('stats.heatTitle')}</h4>
+    <div class="heat">${heat.join('')}</div>
+    <h4>${t('stats.weekdays')}</h4>
+    <div class="wd-bars">${st.weekdays.map((v, i) => `<div class="wd${i === st.best ? ' best' : ''}"><div class="wd-bar"><div style="height:${Math.round(v * 100)}%"></div></div><span>${weekdayName(i)}</span></div>`).join('')}</div>
+    ${st.best >= 0 ? `<p class="small">${t('stats.bestWorst', { best: weekdayName(st.best, 'long'), worst: weekdayName(st.worst, 'long') })}</p>` : `<p class="small">${t('stats.tooEarly')}</p>`}
+    <h4>${t('stats.months')}</h4>
+    <div class="m-bars">${st.months.map(m => `<div class="mb"><b>${m.count}</b><div class="mb-bar"><div style="height:${Math.round(m.count / maxM * 100)}%"></div></div><span>${monthName(m)}</span></div>`).join('')}</div>
+    <h4>${t('rem.title')}</h4>
+    <div class="chips">${rems.map(tm => `<span class="chip selected">⏰ ${tm} <button class="chip-x" data-action="rem-del" data-id="${h.id}" data-time="${tm}" aria-label="${t('habit.delete')}">×</button></span>`).join('') || `<span class="small">${t('rem.none')}</span>`}</div>
+    ${rems.length < 5 ? `<form class="row" data-form="rem" data-id="${h.id}"><input type="time" name="time" value="09:00" required><button class="chip" type="submit">${t('rem.add')}</button></form>` : ''}
+    <p class="small">${isNative ? t('rem.note') : t('settings.reminderAppOnly')}</p>
+    ${flashHtml('rem')}
+  </div>`;
+}
+
+function plusTeaserHtml() {
+  return `<div class="panel plus-teaser">
+    <p><b>${t('plus.teaserTitle')}</b></p>
+    <p>${t('plus.teaserText')}</p>
+    <button class="btn plus-btn" data-action="go-plus">${t('plus.more')}</button>
+  </div>`;
+}
+
+function plusCard() {
+  const until = plusUntil();
+  const list = PLUS_FEATURES.map(f => `<li>${t('plus.f.' + f)}</li>`).join('');
+  let action;
+  if (until) action = `<p class="plus-status">${t('plus.activeUntil', { date: new Date(until).toLocaleDateString(locale(), { day: 'numeric', month: 'long', year: 'numeric' }) })}</p>`;
+  else if (PLANS.testTrial && !trialUsed()) action = `<button class="btn plus-btn" data-action="plus-trial">${t('plus.tryBtn', { n: PLANS.trialDays })}</button><p class="small">${t('plus.tryNote')}</p>`;
+  else action = `<p class="small">${t('plus.soon')}</p>`;
+  return `<div class="card plus-card" id="plusCard"><h2>⭐ YouBoost Plus</h2><ul class="plus-list">${list}</ul>${action}</div>`;
+}
+
+// Разовые уведомления на ближайшие дни: напоминания по привычкам и «серия под угрозой».
+// Пересчитываются при каждом изменении; если ничего не поменялось — не трогаем.
+const SCHED_DAYS = 10;
+let schedSig = null;
+function syncScheduled() {
+  if (!isNative) return;
+  const list = [];
+  if (hasPlus()) {
+    const now = new Date();
+    const todayKey = dateKey(now);
+    let id = 2000;
+    const at = (dayOffset, tm) => { const [hh, mm] = tm.split(':').map(Number); return new Date(now.getFullYear(), now.getMonth(), now.getDate() + dayOffset, hh, mm); };
+    const until = plusUntil();
+    for (const h of state.habits) {
+      for (const tm of h.reminders || []) {
+        for (let d = 0; d < SCHED_DAYS; d++) {
+          const when = at(d, tm);
+          if (when <= now || when.getTime() > until) continue;
+          if (d === 0 && h.done[todayKey]) continue;     // уже сделано сегодня — не напоминаем
+          list.push({ id: id++, at: when, title: hName(h), body: t('rem.body') });
+        }
+      }
+    }
+    const r = prefs.risk;
+    if (r?.on) {
+      const atRisk = state.habits.filter(h => !h.done[todayKey] && streaks(h, todayKey).current >= 2);
+      for (let d = 0; d < SCHED_DAYS; d++) {
+        const when = at(d, r.time);
+        if (when <= now || when.getTime() > until) continue;
+        if (d === 0) {
+          if (!atRisk.length) continue;
+          const h = atRisk.sort((a, b) => streaks(b, todayKey).current - streaks(a, todayKey).current)[0];
+          const n = streaks(h, todayKey).current;
+          list.push({ id: id++, at: when, title: t('risk.title'), body: t('risk.bodyToday', { name: hName(h), n, days: pw(n, 'day'), more: atRisk.length - 1 }) });
+        } else if (state.habits.length) {
+          list.push({ id: id++, at: when, title: t('risk.title'), body: t('risk.bodyLater') });
+        }
+      }
+    }
+  }
+  const sig = JSON.stringify(list.map(n => [n.id, +n.at, n.body]));
+  if (sig === schedSig) return;
+  schedSig = sig;
+  replaceScheduled(list).then(ok => {
+    if (!ok && list.length) { flash.rem = { text: t('settings.reminderDenied'), error: true }; schedSig = null; }
+  });
+}
+
 function renderHabits() {
   const now = new Date();
   const todayKey = dateKey(now);
@@ -264,6 +370,7 @@ function renderHabits() {
       <button class="check" data-action="toggle" data-id="${h.id}" data-day="${todayKey}" aria-label="${done ? t('habit.uncheck') : t('habit.check')}">${CHECK_SVG}</button>
       <div class="name">${e(name)}</div>
       <div class="actions">
+        <button class="icon-btn${statsOpen === h.id ? ' active' : ''}" data-action="stats-toggle" data-id="${h.id}" title="${t('stats.open')}" aria-label="${t('stats.open')}">📊</button>
         ${current > 0 ? `<button class="icon-btn${sharing === h.id ? ' active' : ''}" data-action="share-edit" data-id="${h.id}" title="${t('habit.share')}" aria-label="${t('habit.share')}">${SHARE_SVG}</button>` : ''}
         <button class="icon-btn delete" data-action="remove" data-id="${h.id}" title="${t('habit.delete')}" aria-label="${t('habit.delete')}">×</button>
       </div>
@@ -300,6 +407,8 @@ function renderHabits() {
           ${h.goal ? `<button class="link-btn" type="button" data-action="goal-set" data-id="${h.id}" data-days="">${t('goal.remove')}</button>` : ''}
         </form>${flash.goal ? `<div class="limit-card"><p>${e(flash.goal.text)}</p>${cloud.cloudAvailable ? `<button class="btn primary small-btn" data-action="limit-invite">${t('limit.inviteBtn')}</button>` : ''}</div>` : ''}</div>`;
     }
+
+    if (statsOpen === h.id) html += hasPlus() ? statsPanelHtml(h) : plusTeaserHtml();
 
     if (sharing === h.id && current > 0) {
       html += `<div class="panel share-panel">
@@ -1005,7 +1114,8 @@ function shareInvite(via, flashKey, habitName = null, days = null, photoRequired
 
 function renderSettings() {
   const r = prefs.reminder;
-  let html = `<div class="card">
+  const risk = prefs.risk || { on: false, time: '21:00' };
+  let html = plusCard() + `<div class="card">
     <h2>${t('settings.colors')}</h2>
     <div class="swatches">${Object.entries(THEMES).map(([name, th]) => `<button class="swatch${prefs.theme === name ? ' active' : ''}" data-palette="${name}" style="--sw:${th.swatch};--sa:${th.accent}">
       <span class="dot"></span>${t('color.' + name)}</button>`).join('')}</div>
@@ -1018,6 +1128,9 @@ function renderSettings() {
     <h2>${t('settings.reminders')}</h2>
     <label class="check-row"><input type="checkbox" id="reminderOn"${r.on ? ' checked' : ''}><span>${t('settings.reminderOn')}</span></label>
     <div class="row reminder-time"${r.on ? '' : ' hidden'}><span>${t('settings.reminderAt')}</span><input type="time" id="reminderTime" value="${r.time}"></div>
+    <label class="check-row"><input type="checkbox" id="riskOn"${risk.on && hasPlus() ? ' checked' : ''}${hasPlus() ? '' : ' disabled'}><span>${t('risk.setting')} <span class="plus-tag">⭐ Plus</span></span></label>
+    <div class="row risk-time"${risk.on && hasPlus() ? '' : ' hidden'}><span>${t('settings.reminderAt')}</span><input type="time" id="riskTime" value="${risk.time}"></div>
+    <p class="small">${t('rem.perHabitHint')}</p>
     ${isNative ? '' : `<p class="small">${t('settings.reminderAppOnly')}</p>`}
     ${flashHtml('reminder')}
   </div>
@@ -1215,6 +1328,14 @@ document.addEventListener('click', ev => {
     case 'next-fact': factOffset++; render(); break;
     case 'freeze': useFreeze(id); break;
     case 'limit-invite': flash.goal = null; editingGoal = null; goTab('friends'); setTimeout(() => document.querySelector('.invite-card')?.scrollIntoView({ behavior: 'smooth', block: 'center' }), 50); break;
+    case 'stats-toggle': statsOpen = statsOpen === id ? null : id; flash.rem = null; render(); break;
+    case 'go-plus': goTab('settings'); setTimeout(() => $('plusCard')?.scrollIntoView({ behavior: 'smooth', block: 'start' }), 50); break;
+    case 'plus-trial': startTrial(); render(); break;
+    case 'rem-del': {
+      const h = state.habits.find(x => x.id === id);
+      if (h) { h.reminders = (h.reminders || []).filter(x => x !== el.dataset.time); save(); render(); }
+      break;
+    }
     case 'goal-edit': editingGoal = editingGoal === id ? null : id; flash.goal = null; render(); break;
     case 'goal-set': setGoal(id, el.dataset.days ? Number(el.dataset.days) : null); break;
     case 'signin-google': flash.signin = { text: t('signin.opening') }; render(); run('signin', cloud.signInGoogle); break;
@@ -1330,6 +1451,10 @@ document.addEventListener('change', ev => {
     savePrefs({ reminder: { on: $('reminderOn').checked, time: $('reminderTime').value || '20:00' } });
     updateReminder(); return;
   }
+  if (ev.target.id === 'riskOn' || ev.target.id === 'riskTime') {
+    savePrefs({ risk: { on: $('riskOn').checked, time: $('riskTime').value || '21:00' } });
+    render(); return;
+  }
   if (ev.target.id === 'notifyChallenges') {
     savePrefs({ notifyChallenges: ev.target.checked });
     syncPush();
@@ -1392,6 +1517,16 @@ document.addEventListener('submit', ev => {
   if (!kind) return;
   ev.preventDefault();
   const fd = new FormData(form);
+  if (kind === 'rem') {
+    const h = state.habits.find(x => x.id === form.dataset.id);
+    const tm = String(fd.get('time') || '');
+    if (h && /^\d\d:\d\d$/.test(tm) && hasPlus()) {
+      h.reminders = [...new Set([...(h.reminders || []), tm])].sort().slice(0, 5);
+      flash.rem = isNative ? { text: t('rem.added', { time: tm }) } : null;
+      save(); render();
+    }
+    return;
+  }
   if (kind === 'goal') {
     const n = Math.round(Number(fd.get('days')));
     if (n >= 1 && n <= 3650) setGoal(form.dataset.id, n); else form.days.focus();

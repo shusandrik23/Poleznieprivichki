@@ -109,6 +109,28 @@ export async function cancelDailyReminder() {
   try { await plugin('LocalNotifications').cancel({ notifications: [{ id: REMINDER_ID }] }); } catch (err) {}
 }
 
+// Набор разовых уведомлений (Plus: напоминания по привычкам, «серия под угрозой»).
+// Каждый вызов заменяет предыдущий набор целиком. list: [{ id, at: Date, title, body }]
+const SCHED_KEY = 'youboost-scheduled';
+let schedQueue = Promise.resolve();
+export function replaceScheduled(list) {
+  if (!isNative) return Promise.resolve(false);
+  schedQueue = schedQueue.then(async () => {
+    let old = [];
+    try { old = JSON.parse(localStorage.getItem(SCHED_KEY) || '[]'); } catch (err) {}
+    if (old.length) { try { await plugin('LocalNotifications').cancel({ notifications: old.map(id => ({ id })) }); } catch (err) {} }
+    localStorage.setItem(SCHED_KEY, '[]');
+    if (!list.length) return true;
+    if (!(await notificationsAllowed())) return false;
+    await plugin('LocalNotifications').schedule({ notifications: list.map(n => ({
+      id: n.id, title: n.title, body: n.body, schedule: { at: n.at, allowWhileIdle: true }, isExactNotification: false,
+    })) });
+    localStorage.setItem(SCHED_KEY, JSON.stringify(list.map(n => n.id)));
+    return true;
+  }).catch(err => { console.error(err); return false; });
+  return schedQueue;
+}
+
 // Уведомление прямо сейчас (например, «вам бросили вызов»).
 export async function notifyNow(id, title, body) {
   if (isNative) {
