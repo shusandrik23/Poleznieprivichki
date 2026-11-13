@@ -10,5 +10,11 @@ android/local.properties
 android/app/release/
 *.keystore
 !android/app/debug.keystore
+!spisok/app/debug.keystore
 *.jks
 functions/node_modules/
+# «Мой список»
+spisok/.gradle/
+spisok/build/
+spisok/app/build/
+spisok/local.properties

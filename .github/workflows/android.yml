@@ -6,6 +6,8 @@ on:
   push:
     paths-ignore:
       - 'README.md'
+      - 'spisok/**'
+      - '.github/workflows/spisok.yml'
   workflow_dispatch:
 
 jobs:
