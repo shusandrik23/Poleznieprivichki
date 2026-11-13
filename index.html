@@ -338,6 +338,13 @@
   .promo.won { font-weight: 600; }
   .promo-card { padding: 0; background: transparent; border: 0; box-shadow: none; }
   .promo-card .promo { margin: 0; }
+  .kid-link { display: block; margin: 14px auto 0; }
+  .kid-name { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; background: var(--accent-soft); border-radius: 10px; padding: 10px 12px; }
+  .kid-name b { font-size: 18px; }
+  .kid-row { border-top: 1px solid var(--line); padding: 10px 0; }
+  .kid-row:first-of-type { border-top: 0; }
+  .kid-code .code { font: 700 30px/1.2 ui-monospace, monospace; letter-spacing: 4px; text-align: center; margin: 6px 0; color: var(--accent); }
+  .kid-add-note { margin: 10px 0; font-size: 14px; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -372,6 +379,7 @@
       <input id="newHabit" data-i18n-ph="add.placeholder" placeholder="Своя привычка, например «Зарядка»" maxlength="80" autocomplete="off">
       <button type="submit" data-i18n="add.button">Добавить</button>
     </form>
+    <div class="kid-add-note" id="kidAddNote" hidden></div>
     
     <details class="catalog" id="catalog">
       <summary data-i18n="catalog.summary">Выбрать из готового списка</summary>

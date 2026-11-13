@@ -8,11 +8,17 @@ service cloud.firestore {
     function me() { return request.auth.uid; }
     // b есть в списке друзей у a
     function isFriend(a, b) { return exists(/databases/$(db)/documents/users/$(a)/friends/$(b)); }
+    // Детский профиль (младше 13): kids/{uid} существует. Дети видят и встречают только детей и свою семью.
+    function isKid(u) { return exists(/databases/$(db)/documents/kids/$(u)); }
+    function parentOf(kid) { return get(/databases/$(db)/documents/kids/$(kid)).data.parent; }
+    function sameWorld(a, b) { return isKid(a) == isKid(b); }
+    function anon() { return request.auth.token.firebase.sign_in_provider == 'anonymous'; }
 
     // Занятые ники: usernames/{ник} → { uid }
     match /usernames/{name} {
       allow read: if signedIn();
       allow create: if signedIn()
+        && !anon()
         && name.matches('^[a-z0-9_]{3,20}$')
         && request.resource.data.keys().hasOnly(['uid'])
         && request.resource.data.uid == me();
@@ -20,19 +26,71 @@ service cloud.firestore {
     }
 
     // Публичный профиль: только ник. Виден всем вошедшим (нужно для поиска друзей).
+    // Профиль ребёнка (kid: true) видят только дети и его родитель.
     match /profiles/{uid} {
-      allow read: if signedIn();
-      allow create, update: if signedIn() && uid == me()
+      allow read: if signedIn() && (uid == me() || resource == null || resource.data.get('kid', false) == false || isKid(me()) || parentOf(uid) == me());
+      allow create, update: if signedIn() && uid == me() && !anon()
         && request.resource.data.keys().hasOnly(['nickname'])
         && request.resource.data.nickname is string
         && getAfter(/databases/$(db)/documents/usernames/$(request.resource.data.nickname)).data.uid == me();
-      allow delete: if signedIn() && uid == me();
+      // детский профиль создаётся вместе с kids/{uid}, имя — вымышленное
+      allow create: if signedIn() && uid == me() && anon()
+        && request.resource.data.keys().hasOnly(['nickname', 'kid'])
+        && request.resource.data.kid == true
+        && request.resource.data.nickname is string
+        && request.resource.data.nickname.size() <= 40
+        && existsAfter(/databases/$(db)/documents/kids/$(me()));
+      allow delete: if signedIn() && (uid == me() || parentOf(uid) == me());
+    }
+
+    // Код для добавления ребёнка: создаёт родитель, действует 2 дня, используется один раз.
+    match /kidInvites/{code} {
+      allow read: if signedIn();
+      allow create: if signedIn() && !anon() && !isKid(me())
+        && code.size() == 8
+        && request.resource.data.keys().hasOnly(['parent', 'parentNick', 'createdAt'])
+        && request.resource.data.parent == me()
+        && request.resource.data.createdAt == request.time
+        && exists(/databases/$(db)/documents/profiles/$(me()));
+      allow update: if signedIn() && anon()
+        && !('usedBy' in resource.data)
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['usedBy'])
+        && request.resource.data.usedBy == me()
+        && request.time < resource.data.createdAt + duration.value(2, 'd');
+      allow delete: if signedIn() && resource.data.parent == me();
+    }
+
+    // Детские профили: kids/{ребёнок} → { parent, nickname, assigned: привычки от родителя }.
+    match /kids/{kid} {
+      allow read: if signedIn() && (kid == me() || resource.data.parent == me());
+      allow create: if signedIn() && kid == me() && anon()
+        && request.resource.data.keys().hasOnly(['parent', 'parentNick', 'nickname', 'code', 'createdAt', 'assigned'])
+        && request.resource.data.createdAt == request.time
+        && request.resource.data.assigned == []
+        && request.resource.data.nickname is string
+        && request.resource.data.nickname.size() <= 40
+        && get(/databases/$(db)/documents/kidInvites/$(request.resource.data.code)).data.parent == request.resource.data.parent
+        && getAfter(/databases/$(db)/documents/kidInvites/$(request.resource.data.code)).data.usedBy == me()
+        && request.time < get(/databases/$(db)/documents/kidInvites/$(request.resource.data.code)).data.createdAt + duration.value(2, 'd');
+      // родитель присылает привычки
+      allow update: if signedIn() && resource.data.parent == me()
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['assigned'])
+        && request.resource.data.assigned is list
+        && request.resource.data.assigned.size() <= 100;
+      allow delete: if signedIn() && (kid == me() || resource.data.parent == me());
     }
 
     // Поиск единомышленников: ник и серии тех, кто сам включил «показывать меня».
+    // Взрослые ищут среди взрослых, дети — среди детей (discoverKids).
     match /discover/{uid} {
-      allow read: if signedIn();
-      allow write: if signedIn() && uid == me();
+      allow read: if signedIn() && !isKid(me());
+      allow create, update: if signedIn() && uid == me() && !isKid(me());
+      allow delete: if signedIn() && uid == me();
+    }
+    match /discoverKids/{uid} {
+      allow read: if signedIn() && isKid(me());
+      allow create, update: if signedIn() && uid == me() && isKid(me());
+      allow delete: if signedIn() && (uid == me() || parentOf(uid) == me());
     }
 
     // Приглашения по ссылке (WhatsApp и т. п.). Код знает только тот, кому отправили ссылку.
@@ -40,7 +98,8 @@ service cloud.firestore {
       allow read: if signedIn();
       allow create: if signedIn()
         && code.size() >= 12
-        && request.resource.data.from == me();
+        && request.resource.data.from == me()
+        && request.resource.data.get('kid', false) == isKid(me());
       allow delete: if signedIn() && resource.data.from == me();
     }
 
@@ -65,6 +124,7 @@ service cloud.firestore {
     match /stats/{uid} {
       allow read: if signedIn() && (uid == me() || isFriend(uid, me()));
       allow write: if signedIn() && uid == me();
+      allow delete: if signedIn() && parentOf(uid) == me();
     }
 
     // Личные данные (все отметки) — только владельцу.
@@ -86,6 +146,7 @@ service cloud.firestore {
 
     match /users/{uid} {
       allow read, write: if signedIn() && uid == me();
+      allow delete: if signedIn() && parentOf(uid) == me();
 
       // Друзья. Запись появляется у обоих, когда получатель принимает заявку
       // или открывает ссылку-приглашение.
@@ -94,9 +155,13 @@ service cloud.firestore {
         allow create: if signedIn() && (
           (me() == uid && exists(/databases/$(db)/documents/friendRequests/$(other + '_' + uid)))
           || (me() == other && exists(/databases/$(db)/documents/friendRequests/$(uid + '_' + other)))
-          || ('invite' in request.resource.data && (
+          || ('invite' in request.resource.data && sameWorld(uid, other) && (
             (me() == uid && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.from == other)
             || (me() == other && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.from == uid)))
+          // ребёнок, добавленный по коду, и его родитель
+          || ('kidLink' in request.resource.data && (
+            (me() == uid && getAfter(/databases/$(db)/documents/kids/$(uid)).data.parent == other)
+            || (me() == other && getAfter(/databases/$(db)/documents/kids/$(other)).data.parent == uid)))
         );
         // друг может обновить в вашем списке только свой ник
         allow update: if signedIn() && me() == other
@@ -112,7 +177,8 @@ service cloud.firestore {
         && request.resource.data.from == me()
         && request.resource.data.to != me()
         && id == me() + '_' + request.resource.data.to
-        && exists(/databases/$(db)/documents/profiles/$(request.resource.data.to));
+        && exists(/databases/$(db)/documents/profiles/$(request.resource.data.to))
+        && sameWorld(me(), request.resource.data.to);
       allow delete: if signedIn() && (resource.data.from == me() || resource.data.to == me());
     }
 
@@ -139,9 +205,11 @@ service cloud.firestore {
         && request.resource.data.count >= 0
         && request.resource.data.count <= request.resource.data.get('checks', {}).size();
     }
+    // Детские турниры (id начинается с kids-) — только для детей, взрослые — только для взрослых.
+    function tourWorldOk(tid) { return tid.matches('^kids-.*') == isKid(me()); }
     match /tournaments/{tid}/participants/{uid} {
-      allow read: if signedIn();
-      allow create: if signedIn() && uid == me() && participantFieldsOk()
+      allow read: if signedIn() && tourWorldOk(tid);
+      allow create: if signedIn() && uid == me() && tourWorldOk(tid) && participantFieldsOk()
         && request.resource.data.get('checks', {}).size() == 0;
       allow update: if signedIn() && uid == me() && participantFieldsOk() && checksOk();
       allow delete: if signedIn() && uid == me();
@@ -150,8 +218,8 @@ service cloud.firestore {
     // Фото-подтверждения турнира: photos/{uid}_{номер дня}. Добавить можно только за сегодня.
     // Другие участники могут один раз отметить фото как неправдоподобное (flags).
     match /tournaments/{tid}/photos/{pid} {
-      allow read: if signedIn();
-      allow create: if signedIn()
+      allow read: if signedIn() && !isKid(me());
+      allow create: if signedIn() && !isKid(me())
         && request.resource.data.keys().hasOnly(['uid', 'nickname', 'day', 'image', 'createdAt', 'flags', 'expires'])
         && request.resource.data.uid == me()
         && pid == me() + '_' + request.resource.data.day
@@ -182,15 +250,20 @@ service cloud.firestore {
         && request.resource.data.participants.size() == 2
         && request.resource.data.days is int
         && request.resource.data.days >= 1 && request.resource.data.days <= 365
+        // у детей — без фото
+        && (request.resource.data.get('photoRequired', false) == false
+          || (!isKid(request.resource.data.participants[0]) && !isKid(request.resource.data.participants[1])))
         && (
           (request.resource.data.participants[0] == me()
             && request.resource.data.status == 'pending'
             && (isFriend(me(), request.resource.data.participants[1])
-              || exists(/databases/$(db)/documents/discover/$(request.resource.data.participants[1]))))
+              || (!isKid(me()) && exists(/databases/$(db)/documents/discover/$(request.resource.data.participants[1])))
+              || (isKid(me()) && exists(/databases/$(db)/documents/discoverKids/$(request.resource.data.participants[1])))))
           // приглашённый по ссылке сразу начинает вызов, который ему предложили
           || ('invite' in request.resource.data
             && request.resource.data.participants[1] == me()
             && request.resource.data.status == 'active'
+            && sameWorld(request.resource.data.participants[0], me())
             && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.from == request.resource.data.participants[0]
             && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.habitKey == request.resource.data.habitKey
             && get(/databases/$(db)/documents/invites/$(request.resource.data.invite)).data.days == request.resource.data.days
@@ -219,7 +292,7 @@ service cloud.firestore {
     match /challenges/{cid}/photos/{pid} {
       function challenge() { return get(/databases/$(db)/documents/challenges/$(cid)).data; }
       allow read: if signedIn() && me() in challenge().participants;
-      allow create: if signedIn()
+      allow create: if signedIn() && !isKid(me())
         && me() in challenge().participants
         && challenge().status == 'active'
         && request.resource.data.keys().hasOnly(['uid', 'day', 'image', 'createdAt', 'expires'])

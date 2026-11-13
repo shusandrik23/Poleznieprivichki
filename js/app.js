@@ -2,11 +2,12 @@ import { dateKey, dayKeyFromNumber, streaks, canFreezeYesterday, liveStreak, cha
 import * as cloud from './cloud.js';
 import { social } from './cloud.js';
 import { t, pw, num, lang, setLang, locale, LANGS } from './i18n.js';
-import { HABITS, CATEGORIES, catalogName, keyOf, keyOfName, normKey, displayName, nameOfKey } from './catalog.js';
+import { HABITS, catalogName, catalogIdFor, keyOf, keyOfName, normKey, displayName, nameOfKey } from './catalog.js';
 import { factFor } from './facts.js';
 import { quoteFor } from './quotes.js';
 import { PLANS, PROMO, goalLimit, hasPlus, plusUntil, startTrial, trialUsed, PLUS_FEATURES } from './plans.js';
 import { tipFor } from './tips.js';
+import { isKidMode, catalogCategories, randomKidName, kidAllowed, normCode, KID_ONLY } from './kids.js';
 import { habitStats, HEAT_WEEKS } from './stats.js';
 import { prefs, savePrefs, applyTheme, theme, THEMES } from './prefs.js';
 import { isNative, hasNativeGoogle, appUrl, PUBLIC_URL, nativeShare, copyText, openExternal, onBackButton, onAppUrlOpen, scheduleDailyReminder, cancelDailyReminder, notifyNow, replaceScheduled, registerPush, unregisterPush } from './native.js';
@@ -67,6 +68,11 @@ const cleanedCh = new Set(); // вызовы, чьи фото уже удале�
 let similar = null;         // результаты поиска единомышленников
 let similarLoading = false;
 let pendingInvite = null;   // { code, data?, status }
+let kidJoin = null;         // экран входа ребёнка: { code, name }
+let kidInvite = null;       // родитель: созданный код для ребёнка { code, url }
+let kidAssignOpen = null;   // родитель: uid ребёнка с открытой формой «прислать привычку»
+const KID_CODE_KEY = 'youboost-kid-code';
+const KID_SEEN_KEY = 'youboost-kid-assigned';
 const flash = {};           // сообщения под формами: { friends: {text, error} }
 
 function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
@@ -257,10 +263,12 @@ function render() {
 }
 
 // Как показывать друга: настоящее имя, если он разрешил, иначе ник.
-function friendLabel(f) { return social.friendStats[f.uid]?.realName || '@' + f.nickname; }
+// Детские имена («Смелый Ёжик 42») — без «@».
+function at(nick) { nick = String(nick || ''); return /\s/.test(nick) ? nick : '@' + nick; }
+function friendLabel(f) { return social.friendStats[f.uid]?.realName || at(f.nickname); }
 function friendHtml(f) {
   const real = social.friendStats[f.uid]?.realName;
-  return real ? `${e(real)} <span class="nick">@${e(f.nickname)}</span>` : `@${e(f.nickname)}`;
+  return real ? `${e(real)} <span class="nick">${e(at(f.nickname))}</span>` : `${e(at(f.nickname))}`;
 }
 
 // Серии друзей по такой же привычке.
@@ -396,8 +404,8 @@ function renderHabits() {
       <button class="check" data-action="toggle" data-id="${h.id}" data-day="${todayKey}" aria-label="${done ? t('habit.uncheck') : t('habit.check')}">${CHECK_SVG}</button>
       <div class="name">${e(name)}</div>
       <div class="actions">
-        <button class="icon-btn${statsOpen === h.id ? ' active' : ''}" data-action="stats-toggle" data-id="${h.id}" title="${t('stats.open')}" aria-label="${t('stats.open')}">📊</button>
-        ${current > 0 ? `<button class="icon-btn${sharing === h.id ? ' active' : ''}" data-action="share-edit" data-id="${h.id}" title="${t('habit.share')}" aria-label="${t('habit.share')}">${SHARE_SVG}</button>` : ''}
+        ${isKidMode() ? '' : `<button class="icon-btn${statsOpen === h.id ? ' active' : ''}" data-action="stats-toggle" data-id="${h.id}" title="${t('stats.open')}" aria-label="${t('stats.open')}">📊</button>`}
+        ${current > 0 && !isKidMode() ? `<button class="icon-btn${sharing === h.id ? ' active' : ''}" data-action="share-edit" data-id="${h.id}" title="${t('habit.share')}" aria-label="${t('habit.share')}">${SHARE_SVG}</button>` : ''}
         <button class="icon-btn delete" data-action="remove" data-id="${h.id}" title="${t('habit.delete')}" aria-label="${t('habit.delete')}">×</button>
       </div>
       ${deadlineOf(h) ? `<p class="wake-hint">${wakeMsg?.id === h.id ? `<span class="${wakeMsg.error ? 'err' : 'ok'}">${e(wakeMsg.text)}</span>` : t('wake.hint', { time: deadlineOf(h) })}</p>` : ''}
@@ -475,7 +483,7 @@ function renderHabits() {
   $('hint').hidden = !total;
 
   const added = new Set(state.habits.map(keyOf));
-  $('catalogBody').innerHTML = CATEGORIES.map(cat => `<div class="cat"><h3>${cat[lang]}</h3><div class="chips">${
+  $('catalogBody').innerHTML = catalogCategories().map(cat => `<div class="cat"><h3>${cat[lang]}</h3><div class="chips">${
     cat.items.map(id => {
       const name = catalogName(id);
       return added.has('c:' + id)
@@ -487,6 +495,9 @@ function renderHabits() {
   // Анонс турнира, к которому можно присоединиться
   const today = todayNumber();
   const tj = cloud.cloudAvailable && tournamentsAround(today).find(tr => canJoin(tr, today) && !social.joined.includes(tr.id));
+  $('addForm').hidden = isKidMode();
+  $('kidAddNote').hidden = !isKidMode();
+  if (isKidMode()) $('kidAddNote').innerHTML = t('kid.addNote') + flashHtml('kidHabit');
   const promo = promoHtml(true);
   $('promoBanner').hidden = !promo;
   if (promo) setHTML($('promoBanner'), promo);
@@ -499,7 +510,8 @@ function renderHabits() {
   }
 
   // Факт дня
-  const fact = factFor(todayNumber(), factOffset);
+  let fact = factFor(todayNumber(), factOffset);
+  for (let i = 1; isKidMode() && !kidAllowed(fact.habit) && i < 60; i++) fact = factFor(todayNumber(), factOffset + i);
   const factName = catalogName(fact.habit);
   const has = findByKey('c:' + fact.habit);
   $('fact').innerHTML = `<div class="fact-head"><span>${t('fact.title')}</span>
@@ -524,7 +536,56 @@ function signInCard(text) {
     ${signInButtons()}
     ${flashHtml('signin')}
     <p class="small">${t('signin.note')}</p>
+    <button class="link-btn kid-link" data-action="kid-join">${t('kid.haveCode')}</button>
   </div>`;
+}
+
+// Вход ребёнка по коду от родителя: без почты и Google-аккаунта, имя — вымышленное.
+function kidJoinCard() {
+  if (!kidJoin) kidJoin = { code: '', name: randomKidName() };
+  return `<div class="card kid-join">
+    <h2>${t('kid.joinTitle')}</h2>
+    <p class="small">${t('kid.joinNote')}</p>
+    <form data-form="kidjoin" class="stack">
+      <label>${t('kid.codeLabel')}<input name="code" required maxlength="12" autocomplete="off" autocapitalize="characters" placeholder="ABCD2345" value="${e(kidJoin.code)}"></label>
+      <div class="kid-name"><span class="small">${t('kid.yourName')}</span><b>${e(kidJoin.name)}</b>
+        <button class="btn small-btn" type="button" data-action="kid-reroll">${t('kid.reroll')}</button></div>
+      <div class="row"><button class="btn primary" type="submit">${t('kid.joinBtn')}</button>
+        <button class="btn" type="button" data-action="kid-join-cancel">${t('common.cancel')}</button></div>
+      ${flashHtml('kidjoin')}
+    </form>
+  </div>`;
+}
+
+// Родитель: дети, их серии, привычки от родителя, новый код.
+function kidsCard() {
+  const today = todayNumber();
+  if (kidInvite && social.kids.some(k => k.code === kidInvite.code)) kidInvite = null;   // ребёнок уже подключился
+  let html = `<div class="card kids-card"><h2>${t('kid.parentTitle')}</h2><p class="small">${t('kid.parentNote')}</p>`;
+  for (const k of social.kids) {
+    const st = social.friendStats[k.uid]?.habits || [];
+    html += `<div class="kid-row">
+      <div class="row-between"><b>🧒 ${e(k.nickname)}</b>
+        <div class="row"><button class="btn small-btn" data-action="kid-assign" data-uid="${k.uid}">${t('kid.sendHabit')}</button>
+        <button class="icon-btn delete" data-action="kid-remove" data-uid="${k.uid}" title="${t('kid.remove')}" aria-label="${t('kid.remove')}">×</button></div></div>
+      ${st.length ? `<div class="small">${st.map(x => `${e(nameOfKey(x.key, x.name))} — <b>${liveStreak(x, today)}</b>`).join(' · ')}</div>` : `<div class="small">${t('kid.noHabitsYet')}</div>`}
+      ${kidAssignOpen === k.uid ? `<form data-form="kidassign" data-id="${k.uid}" class="stack panel">
+        <label>${t('kid.fromCatalog')}<select name="catalog"><option value="">—</option>${KID_ONLY.concat(['read', 'water', 'morning_exercise', 'make_bed', 'walk_outside', 'help_someone', 'call_family'])
+          .map(id => `<option value="${e(catalogName(id))}">${e(catalogName(id))}</option>`).join('')}</select></label>
+        <label>${t('kid.orOwn')}<input name="own" maxlength="60" placeholder="${t('kid.ownPh')}" autocomplete="off"></label>
+        <button class="btn primary" type="submit">${t('kid.sendBtn')}</button>
+        ${flashHtml('kidassign')}
+      </form>` : ''}
+    </div>`;
+  }
+  if (kidInvite) {
+    html += `<div class="panel kid-code"><p>${t('kid.codeShow')}</p><div class="code">${kidInvite.code.slice(0, 4)} ${kidInvite.code.slice(4)}</div>
+      <p class="small">${t('kid.codeNote')}</p>
+      <div class="row">${canShareText() ? `<button class="btn" data-action="kid-share" data-via="share">${t('share.more')}</button>` : ''}
+      <button class="btn" data-action="kid-share" data-via="copy">${t('common.copyLink')}</button></div></div>`;
+  }
+  html += `<button class="btn primary" data-action="kid-add">${t('kid.addBtn')}</button>${flashHtml('kids')}</div>`;
+  return html;
 }
 
 function nicknameForm() {
@@ -545,7 +606,9 @@ function socialGate(text) {
   if (!cloud.cloudAvailable) return `<div class="card center"><p>${t('gate.noCloud')}</p><p class="small">${t('gate.noCloudNote')}</p></div>`;
   if (social.error) return `<div class="card center"><p>${t('err.connect')}</p></div>`;
   if (!social.ready || (social.user && social.profile === undefined)) return `<div class="card center"><p class="small">${t('gate.connecting')}</p></div>`;
+  if (kidJoin || (social.user?.anon && !social.kid)) return kidJoinCard();
   if (!social.user) return signInCard(text);
+  if (social.kid && !social.profile) return `<div class="card center"><p class="small">${t('gate.connecting')}</p></div>`;
   if (!social.profile || renaming) return nicknameForm();
   return null;
 }
@@ -557,7 +620,7 @@ function flashHtml(key) {
 
 // Акция «Пригласите 2 друзей — 3 месяца Plus»
 function promoInfo() {
-  if (!PROMO.enabled || !cloud.cloudAvailable) return null;
+  if (!PROMO.enabled || !cloud.cloudAvailable || isKidMode()) return null;
   const p = social.promo || {};
   const limit = p.limit || PROMO.limit;
   const left = Math.max(0, limit - (p.count || 0));
@@ -600,7 +663,7 @@ function similarCard() {
   const me = social.user.uid;
   let html = `<div class="card">
     <h2>${t('similar.title')}</h2>
-    <p class="small">${t('similar.note')}</p>`;
+    <p class="small">${t(isKidMode() ? 'kid.similarNote' : 'similar.note')}</p>`;
   if (!social.settings.discoverable) html += `<p class="small">${t('similar.offNote')}</p>`;
   if (!state.habits.length) {
     html += `<p class="small">${t('similar.needHabit')}</p></div>`;
@@ -615,7 +678,7 @@ function similarCard() {
       const isFriend = social.friends.some(f => f.uid === p.uid);
       const pending = social.outgoing.some(r => r.to === p.uid);
       html += `<div class="person">
-        <div class="row-between"><b>@${e(p.nickname)}</b>
+        <div class="row-between"><b>${e(at(p.nickname))}</b>
           <div class="row">
             ${isFriend ? `<span class="small">${t('similar.inFriends')}</span>` : pending ? `<span class="small">${t('friends.sent')}</span>`
               : `<button class="btn small-btn" data-action="similar-friend" data-uid="${p.uid}">${t('similar.addFriend')}</button>`}
@@ -650,7 +713,7 @@ function renderFriends() {
 
   const today = todayNumber();
   const todayKey = dateKey(new Date());
-  let html = `<div class="card">
+  let html = isKidMode() ? `<div class="card"><p>${t('kid.hello', { name: e(social.profile.nickname) })}</p><p class="small">${t('kid.friendsNote')}</p></div>` : `<div class="card">
     <h2>${t('friends.addTitle')}</h2>
     <form data-form="friend" class="row">
       <input name="nickname" placeholder="${t('friends.nickPh')}" autocomplete="off" autocapitalize="none" required>
@@ -662,13 +725,13 @@ function renderFriends() {
 
   if (social.incoming.length) {
     html += `<h2 class="section">${t('friends.requests')}</h2>` + social.incoming.map(r => `<div class="card row-between">
-      <div><b>@${e(r.fromNick)}</b><div class="small">${t('friends.wantsAdd')}</div></div>
+      <div><b>${e(at(r.fromNick))}</b><div class="small">${t('friends.wantsAdd')}</div></div>
       <div class="row"><button class="btn primary" data-action="req-accept" data-id="${r.id}">${t('common.accept')}</button>
       <button class="btn" data-action="req-decline" data-id="${r.id}">${t('friends.decline')}</button></div></div>`).join('');
   }
   if (social.outgoing.length) {
     html += `<h2 class="section">${t('common.waiting')}</h2>` + social.outgoing.map(r => `<div class="card row-between">
-      <div><b>@${e(r.toNick)}</b><div class="small">${t('friends.sent')}</div></div>
+      <div><b>${e(at(r.toNick))}</b><div class="small">${t('friends.sent')}</div></div>
       <button class="btn" data-action="req-cancel" data-id="${r.id}">${t('common.cancel')}</button></div>`).join('');
   }
 
@@ -680,7 +743,7 @@ function renderFriends() {
     html += `<div class="card friend">
       <div class="row-between"><div class="friend-name">${friendHtml(f)}</div>
       <div class="row"><button class="btn small-btn" data-action="challenge-person" data-uid="${f.uid}">${t('common.challenge')}</button>
-      <button class="icon-btn delete" data-action="friend-remove" data-uid="${f.uid}" title="${t('friends.remove')}" aria-label="${t('friends.remove')}">×</button></div></div>
+      ${isKidMode() && social.kid?.parent === f.uid ? '' : `<button class="icon-btn delete" data-action="friend-remove" data-uid="${f.uid}" title="${t('friends.remove')}" aria-label="${t('friends.remove')}">×</button>`}</div></div>
       ${common.length ? `<table class="compare"><thead><tr><th>${t('friends.common')}</th><th>${e(friendLabel(f))}</th><th>${t('common.you')}</th></tr></thead><tbody>${
         common.map(({ h, st }) => {
           const theirs = liveStreak(st, today), mine = streaks(h, todayKey).current;
@@ -691,7 +754,15 @@ function renderFriends() {
   }
 
   html += inviteCard() + similarCard();
+  if (!isKidMode()) html = html.replace('<h2 class="section">' + t('friends.list'), kidsCard() + '<h2 class="section">' + t('friends.list'));
   setHTML(el, html);
+}
+
+function kidAccountCard() {
+  return `<div class="card"><h2>${t('settings.account')}</h2>
+    <p>${t('kid.accountName', { name: e(social.profile.nickname) })}</p>
+    <p class="small">${t('kid.accountParent', { parent: e(at(social.kid.parentNick || '')) })}</p>
+    <button class="link-btn danger" data-action="delete-account">${t('kid.leave')}</button></div>`;
 }
 
 function accountCard() {
@@ -720,14 +791,14 @@ function progressRow(name, p, ch, today) {
 function challengeTargets() {
   const out = social.friends.map(f => ({ uid: f.uid, nickname: f.nickname, label: friendLabel(f), group: 'friends' }));
   for (const p of [...(suggestions || []), ...(similar || [])]) {
-    if (!out.some(x => x.uid === p.uid)) out.push({ uid: p.uid, nickname: p.nickname, label: '@' + p.nickname, group: 'similar' });
+    if (!out.some(x => x.uid === p.uid)) out.push({ uid: p.uid, nickname: p.nickname, label: at(p.nickname), group: 'similar' });
   }
   return out;
 }
 
 function participantName(ch, uid) {
   const f = social.friends.find(x => x.uid === uid);
-  return f ? friendLabel(f) : '@' + (ch.names?.[uid] || t('ch.rival'));
+  return f ? friendLabel(f) : at(ch.names?.[uid] || t('ch.rival'));
 }
 
 const chName = ch => nameOfKey(ch.habitKey, ch.habitName);
@@ -752,10 +823,10 @@ function renderChallenges() {
     <p class="small">${t('ch.rules')}</p>
     <form data-form="challenge" class="stack">
       <label>${t('ch.habit')}<select name="habit">${habits.map(h => `<option value="${h.id}"${h.id === challengeHabit ? ' selected' : ''}>${e(hName(h))}</option>`).join('')}
-        <option value="__new"${showNew ? ' selected' : ''}>${t('ch.newOption')}</option></select></label>
-      <label class="new-habit"${showNew ? '' : ' hidden'}>${t('ch.newLabel')}<input name="newHabit" maxlength="80" placeholder="${t('ch.newPh')}" autocomplete="off"></label>
+        ${isKidMode() ? '' : `<option value="__new"${showNew ? ' selected' : ''}>${t('ch.newOption')}</option>`}</select></label>
+      <label class="new-habit"${showNew && !isKidMode() ? '' : ' hidden'}>${t('ch.newLabel')}<input name="newHabit" maxlength="80" placeholder="${t('ch.newPh')}" autocomplete="off"></label>
       <label>${t('ch.daysLabel')}<select name="days">${CHALLENGE_DAYS.map(n => `<option value="${n}"${n === 21 ? ' selected' : ''}>${nd(n)}</option>`).join('')}</select></label>
-      <label class="check-row"><input type="checkbox" name="photoRequired"><span>${t('ch.photoOpt')} <span class="small">${t('ch.photoOptNote')}</span></span></label>
+      ${isKidMode() ? '' : `<label class="check-row"><input type="checkbox" name="photoRequired"><span>${t('ch.photoOpt')} <span class="small">${t('ch.photoOptNote')}</span></span></label>`}
       ${targets.length ? `<label>${t('ch.opponent')}<select name="friend">${groupsHtml}</select></label>
         <button class="btn primary" type="submit">${t('ch.send')}</button>` : ''}
       <div class="or">${targets.length ? t('ch.orInvite') : t('ch.inviteOnly')}</div>
@@ -972,7 +1043,7 @@ function tournamentsHtml(today) {
       todayHtml = `<div class="tour-today">${checked
         ? `<span class="ok">${t('tour.checkedToday')}</span> ${myPhoto ? `<span class="small">${t('tour.photoAdded')}</span>`
           : photoUploading === tr.id ? `<span class="small">${t('tour.photoUploading')}</span>`
-          : `<button class="btn small-btn" data-action="tour-photo" data-id="${tr.id}">${t('tour.addPhoto')}</button>`}`
+          : isKidMode() ? '' : `<button class="btn small-btn" data-action="tour-photo" data-id="${tr.id}">${t('tour.addPhoto')}</button>`}`
         : `<span class="small">${t('tour.markToday', { habit: e(tr.habit) })}</span>`}
         <div class="small">${t('tour.onlyToday')}</div></div>`;
     }
@@ -1003,7 +1074,7 @@ function leaderboardHtml(tr, data) {
   if (data.error) return `<p class="small">${t('tour.boardError')}</p>`;
   if (!data.top.length) return `<p class="small">${t('tour.boardEmpty')}</p>`;
   const me = social.user.uid;
-  return `<ol class="board">${data.top.map(p => `<li class="${p.uid === me ? 'me' : ''}"><span>@${e(p.nickname)}${p.photos ? ` <span class="photos-badge">${t('tour.photosBadge', { n: p.photos })}</span>` : ''}</span>
+  return `<ol class="board">${data.top.map(p => `<li class="${p.uid === me ? 'me' : ''}"><span>${e(at(p.nickname))}${p.photos ? ` <span class="photos-badge">${t('tour.photosBadge', { n: p.photos })}</span>` : ''}</span>
     <span>${p.count} / ${tr.days}${p.count >= tr.days ? ' 🏆' : ''}</span></li>`).join('')}</ol>
     ${data.myPlace && data.myPlace > 10 ? `<p class="small">${t('tour.yourPlace', { p: data.myPlace, n: data.total })}</p>` : ''}`;
 }
@@ -1020,7 +1091,7 @@ function feedHtml(tr, data) {
     const mineFlag = (p.flags || []).includes(me);
     return `<figure class="photo${rejected ? ' rejected' : ''}">
       <img src="${p.image}" alt="" loading="lazy">
-      <figcaption><b>@${e(p.nickname)}</b> · ${shortDate(Number(p.day))}${flags ? ` · ${t('tour.flags', { n: flags })}` : ''}
+      <figcaption><b>${e(at(p.nickname))}</b> · ${shortDate(Number(p.day))}${flags ? ` · ${t('tour.flags', { n: flags })}` : ''}
         ${rejected ? `<span class="rej">${t('tour.rejected')}</span>`
           : p.uid !== me && iAmIn ? (mineFlag ? `<span class="small">${t('tour.flagged')}</span>` : `<button class="link-btn" data-action="tour-flag" data-id="${tr.id}" data-photo="${p.id}">${t('tour.flag')}</button>`) : ''}
       </figcaption></figure>`;
@@ -1075,7 +1146,7 @@ function suggestionsHtml(today) {
   if (suggestionsLoading && !suggestions) html += `<p class="small">${t('common.searching')}</p>`;
   else if (!suggestions?.length) html += `<p class="small">${t('suggest.none')}</p>`;
   for (const p of suggestions || []) {
-    html += `<div class="person"><div class="row-between"><b>@${e(p.nickname)}</b></div>
+    html += `<div class="person"><div class="row-between"><b>${e(at(p.nickname))}</b></div>
       <div class="chips">${p.common.map(h => {
         const c = liveStreak(h, today), k = p.uid + '|' + normKey(h.key), name = nameOfKey(h.key, h.name);
         return sentTo[k] ? `<span class="chip added">${t('suggest.sent', { name: e(name) })}</span>`
@@ -1088,6 +1159,19 @@ function suggestionsHtml(today) {
 // ---------- Приглашения по ссылке ----------
 
 // Код из ссылки запоминаем, чтобы он пережил вход через Google.
+(function readKidCodeFromUrl() {
+  const url = new URL(location.href);
+  const code = url.searchParams.get('kid');
+  if (code) {
+    try { localStorage.setItem(KID_CODE_KEY, normCode(code)); } catch (err) {}
+    url.searchParams.delete('kid');
+    history.replaceState(null, '', url.pathname + url.search + url.hash);
+  }
+  let saved = null;
+  try { saved = localStorage.getItem(KID_CODE_KEY); } catch (err) {}
+  if (saved) { kidJoin = { code: saved, name: randomKidName() }; tab = 'friends'; }
+})();
+
 (function readInviteFromUrl() {
   const url = new URL(location.href);
   const code = url.searchParams.get('invite');
@@ -1131,7 +1215,7 @@ function renderInviteBanner() {
     else if (inv.status === 'ready') {
       const d = inv.data;
       if (d.from === social.user.uid) body = `<p>${t('ib.own')}</p><button class="btn" data-action="invite-dismiss">${t('common.close')}</button>`;
-      else body = `<p><b>@${e(d.nickname)}</b> ${d.habitName
+      else body = `<p><b>${e(at(d.nickname))}</b> ${d.habitName
           ? t('ib.challenge', { habit: e(nameOfKey(d.habitKey, d.habitName)), n: d.days, days: pw(d.days, 'day') }) + (d.photoRequired ? ' ' + t('ib.photoRequired') : '')
           : t('ib.friend')}</p>
         <div class="row"><button class="btn primary" data-action="invite-accept">${d.habitName ? t('ib.acceptCh') : t('ib.addFriend')}</button>
@@ -1170,7 +1254,7 @@ function shareInvite(via, flashKey, habitName = null, days = null, photoRequired
 function renderSettings() {
   const r = prefs.reminder;
   const risk = prefs.risk || { on: false, time: '21:00' };
-  let html = plusCard() + `<div class="card">
+  let html = (isKidMode() ? '' : plusCard()) + `<div class="card">
     <h2>${t('settings.colors')}</h2>
     <div class="swatches">${Object.entries(THEMES).map(([name, th]) => `<button class="swatch${prefs.theme === name ? ' active' : ''}" data-palette="${name}" style="--sw:${th.swatch};--sa:${th.accent}">
       <span class="dot"></span>${t('color.' + name)}</button>`).join('')}</div>
@@ -1183,9 +1267,9 @@ function renderSettings() {
     <h2>${t('settings.reminders')}</h2>
     <label class="check-row"><input type="checkbox" id="reminderOn"${r.on ? ' checked' : ''}><span>${t('settings.reminderOn')}</span></label>
     <div class="row reminder-time"${r.on ? '' : ' hidden'}><span>${t('settings.reminderAt')}</span><input type="time" id="reminderTime" value="${r.time}"></div>
-    <label class="check-row"><input type="checkbox" id="riskOn"${risk.on && hasPlus() ? ' checked' : ''}${hasPlus() ? '' : ' disabled'}><span>${t('risk.setting')} <span class="plus-tag">⭐ Plus</span></span></label>
+    ${isKidMode() ? '' : `<label class="check-row"><input type="checkbox" id="riskOn"${risk.on && hasPlus() ? ' checked' : ''}${hasPlus() ? '' : ' disabled'}><span>${t('risk.setting')} <span class="plus-tag">⭐ Plus</span></span></label>
     <div class="row risk-time"${risk.on && hasPlus() ? '' : ' hidden'}><span>${t('settings.reminderAt')}</span><input type="time" id="riskTime" value="${risk.time}"></div>
-    <p class="small">${t('rem.perHabitHint')}</p>
+    <p class="small">${t('rem.perHabitHint')}</p>`}
     ${isNative ? '' : `<p class="small">${t('settings.reminderAppOnly')}</p>`}
     ${flashHtml('reminder')}
   </div>
@@ -1195,7 +1279,7 @@ function renderSettings() {
     <p class="small">${t('settings.notifyNote')}</p>
   </div>`;
   if (social.user && social.profile) {
-    html += settingsCard() + (renaming ? nicknameForm() : `<div class="card"><h2>${t('settings.account')}</h2>${accountCard()}</div>`);
+    html += isKidMode() ? kidAccountCard() : settingsCard() + (renaming ? nicknameForm() : `<div class="card"><h2>${t('settings.account')}</h2>${accountCard()}</div>`);
   } else if (cloud.cloudAvailable) {
     html += `<div class="card"><h2>${t('settings.title')}</h2><p class="small">${t('settings.signinFirst')}</p>
       <button class="btn small-btn" data-action="go-friends">${t('tab.friends')}</button></div>`;
@@ -1255,7 +1339,7 @@ function onIncomingChallenges(list) {
   try { localStorage.setItem(SEEN_KEY, JSON.stringify([...seen, ...fresh.map(c => c.id)].slice(-200))); } catch (err) {}
   if (!prefs.notifyChallenges || pushToken) return;
   for (const ch of fresh) {
-    const from = '@' + (ch.names?.[ch.participants[0]] || '');
+    const from = at(ch.names?.[ch.participants[0]] || '');
     notifyNow(100 + (Math.abs([...ch.id].reduce((a, c) => a * 31 + c.charCodeAt(0) | 0, 0)) % 100000), 'YouBoost',
       t('notify.challenge', { name: from, habit: nameOfKey(ch.habitKey, ch.habitName) })).catch(err => console.error(err));
   }
@@ -1402,8 +1486,25 @@ document.addEventListener('click', ev => {
     case 'signout': similar = null; run(null, cloud.signOut); break;
     case 'rename': renaming = true; flash.nickname = null; render(); break;
     case 'rename-cancel': renaming = false; render(); break;
+    case 'kid-join': kidJoin = { code: '', name: randomKidName() }; flash.kidjoin = null; render(); break;
+    case 'kid-reroll': if (kidJoin) { const c = document.querySelector('form[data-form=kidjoin] [name=code]'); kidJoin.code = c ? c.value : kidJoin.code; kidJoin.name = randomKidName(); render(); } break;
+    case 'kid-join-cancel': kidJoin = null; try { localStorage.removeItem(KID_CODE_KEY); } catch (err) {} cloud.cancelKidJoin().finally(render); break;
+    case 'kid-add': run('kids', async () => { kidInvite = await cloud.createKidInvite(); }); break;
+    case 'kid-share': {
+      if (!kidInvite) break;
+      const text = t('kid.shareText', { code: kidInvite.code, url: kidInvite.url });
+      if (el.dataset.via === 'share') (isNative ? nativeShare({ text }) : navigator.share({ text })).catch(() => {});
+      else copyText(text).then(() => { flash.kids = { text: t('share.copied') }; render(); }).catch(() => { flash.kids = { text }; render(); });
+      break;
+    }
+    case 'kid-assign': kidAssignOpen = kidAssignOpen === el.dataset.uid ? null : el.dataset.uid; flash.kidassign = null; render(); break;
+    case 'kid-remove': {
+      const k = social.kids.find(x => x.uid === el.dataset.uid);
+      if (k && confirm(t('kid.removeConfirm', { name: k.nickname }))) run('kids', () => cloud.removeKid(k.uid));
+      break;
+    }
     case 'delete-account':
-      if (confirm(t('account.deleteConfirm'))) {
+      if (confirm(t(isKidMode() ? 'kid.leaveConfirm' : 'account.deleteConfirm'))) {
         run(null, async () => { await cloud.deleteAccount(); similar = null; alert(t('account.deleted')); });
       }
       break;
@@ -1565,6 +1666,7 @@ document.addEventListener('submit', ev => {
   const kind = form.dataset.form;
   if (form.id === 'addForm') {
     ev.preventDefault();
+    if (isKidMode()) return;
     const input = $('newHabit');
     if (addHabit(input.value)) input.value = '';
     return;
@@ -1585,6 +1687,21 @@ document.addEventListener('submit', ev => {
   if (kind === 'goal') {
     const n = Math.round(Number(fd.get('days')));
     if (n >= 1 && n <= 3650) setGoal(form.dataset.id, n); else form.days.focus();
+  } else if (kind === 'kidjoin') {
+    const code = normCode(fd.get('code'));
+    kidJoin.code = code;
+    flash.kidjoin = { text: t('kid.joining') }; render();
+    run('kidjoin', async () => {
+      try { await cloud.joinAsKid(code, kidJoin.name); }
+      catch (err) { await cloud.cancelKidJoin(); throw err; }
+      kidJoin = null;
+      try { localStorage.removeItem(KID_CODE_KEY); } catch (err) {}
+      return t('kid.welcome');
+    });
+  } else if (kind === 'kidassign') {
+    const name = String(fd.get('own') || '').trim() || String(fd.get('catalog') || '');
+    if (!name) return;
+    run('kidassign', async () => { await cloud.assignHabit(form.dataset.id, name); return t('kid.sent', { name }); });
   } else if (kind === 'nickname') {
     run('nickname', async () => { await cloud.claimNickname(fd.get('nickname'), pendingInvite?.code); renaming = false; });
   } else if (kind === 'settings') {
@@ -1658,6 +1775,22 @@ cloud.initCloud({
   onIncomingChallenges,
   // отметка в турнире записана — обновляем таблицу
   onTournament: id => { const tr = tournamentsAround(todayNumber()).find(x => x.id === id); if (tr) loadTour(tr); },
+  // Детский профиль: привычки, которые прислал родитель, добавляются сами (один раз каждая).
+  onKidAssigned: list => {
+    let seen = [];
+    try { seen = JSON.parse(localStorage.getItem(KID_SEEN_KEY) || '[]'); } catch (err) {}
+    const fresh = list.filter(a => a && a.name && !seen.includes(a.at));
+    if (!fresh.length) return;
+    for (const a of fresh) { addHabit(a.name, { silent: true }); seen.push(a.at); }
+    try { localStorage.setItem(KID_SEEN_KEY, JSON.stringify(seen.slice(-200))); } catch (err) {}
+    const names = fresh.map(a => displayName(a.name)).join(', ');
+    flash.kidHabit = { text: t('kid.gotHabit', { names }) };
+    notifyNow(4242, 'YouBoost', t('kid.gotHabit', { names })).catch(() => {});
+  },
+  onKidRemoved: () => {
+    alert(t('kid.removed'));
+    cloud.deleteAccount().catch(() => cloud.signOut()).finally(render);
+  },
   getState: () => state,
   setState: s => {
     state = s;
