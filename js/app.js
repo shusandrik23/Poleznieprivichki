@@ -1062,7 +1062,12 @@ async function syncPush() {
         onTap: data => goTab(data.type === 'friend' ? 'friends' : 'challenges'),
       });
       if (pushToken) await cloud.savePushToken(pushToken, lang);
-    } catch (err) { console.error('push', err); pushFor = null; }
+    } catch (err) {
+      // Не вышло (нет разрешения, правила ещё не опубликованы и т. п.) — повторять не будем до перезапуска,
+      // а уведомления о вызовах останутся локальными.
+      console.error('push', err);
+      pushToken = null;
+    }
   } else if (!want && pushFor) {
     if (pushToken) await cloud.removePushToken(pushToken);
     await unregisterPush();
