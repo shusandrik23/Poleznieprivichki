@@ -22,6 +22,7 @@ const BOOKS = { Gen: 'בְּרֵאשִׁית', Exod: 'שְׁמוֹת', Num: 'ב�
 
 /* ---------- WLC parsing ---------- */
 const bookCache = {};
+const META = JSON.parse(fs.readFileSync(path.join(ROOT, 'content-src', '_meta.json'), 'utf8'));
 const CANT = /[֑-ֽֿ֯׀׃-׆]/g;   // accents, meteg, rafe, paseq, dots
 const cons = s => s.replace(/[֑-ׇ\/]/g, '').replace(/[^א-ת ]/g, '');
 
@@ -41,6 +42,11 @@ function loadBook(book) {
       units.push({ text, cons: cons(text), join: ' ' });
     }
     verses[m[1]] = units;
+  }
+  // small spelling fixes where school editions differ from the codex (listed in _meta.json → textFixes)
+  for (const f of META.textFixes || []) {
+    const u = verses[f.ref]?.find(x => x.text.normalize('NFD') === f.from.normalize('NFD'));
+    if (f.ref.startsWith(book + '.')) { if (!u) throw new Error(`textFix not applied: ${f.ref} ${f.from}`); u.text = f.to; }
   }
   return (bookCache[book] = verses);
 }
