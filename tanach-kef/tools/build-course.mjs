@@ -84,16 +84,22 @@ if (rest[0] === '--show') {
 const srcDir = path.join(ROOT, 'content-src');
 const meta = JSON.parse(fs.readFileSync(path.join(srcDir, '_meta.json'), 'utf8'));
 const files = meta.order.filter(f => fs.existsSync(path.join(srcDir, f)) || (console.warn('missing ' + f), false));
-const out = { version: 2, characters: meta.characters, books: [] };
+const out = { version: 3, characters: meta.characters, names: meta.names || [], books: [] };
+// Russian helper layer: content-src/ru/<same file name>, keyed by ids, arrays in the same order as the Hebrew
+const ruOf = f => { const p = path.join(srcDir, 'ru', f); return fs.existsSync(p) ? JSON.parse(fs.readFileSync(p, 'utf8')) : null; };
 const errors = [];
 const seenIds = new Set();
 
 for (const f of files) {
   const src = JSON.parse(fs.readFileSync(path.join(srcDir, f), 'utf8'));
-  const book = { id: src.id, title: src.title, subtitle: src.grade, stories: [] };
+  const RU = ruOf(f);
+  if (!RU) errors.push(`${f}: no Russian file content-src/ru/${f}`);
+  const ruL = id => RU?.lessons?.[id];
+  const book = { id: src.id, title: src.title, subtitle: src.grade, ru: RU?.books?.[src.id], stories: [] };
   for (const st of src.stories) {
     if (st.soon) { book.stories.push({ id: st.id, title: st.title, soon: true }); continue; }
-    const story = { id: st.id, title: st.title, lessons: [] };
+    const story = { id: st.id, title: st.title, ru: RU?.stories?.[st.id], lessons: [] };
+    if (RU && !story.ru) errors.push(`${st.id}: no Russian story title`);
     for (const L of st.lessons) {
       const where = `${L.id}`;
       if (seenIds.has(L.id)) errors.push(`${where}: duplicate lesson id`); seenIds.add(L.id);
@@ -155,7 +161,23 @@ for (const f of files) {
       for (const [kind, q, opts, explain] of (L.q || [])) {
         tasks.push({ type: 'choice', kind: kind === 'd' ? 'detective' : 'meaning', q, options: opts, answer: 0, ...(explain ? { explain } : {}) });
       }
-      story.lessons.push({ id: L.id, title: L.title, icon: L.icon, story: L.story, words, verses: vOut, tasks });
+      const R = ruL(L.id);
+      if (RU && !R) errors.push(`${where}: no Russian`);
+      if (R) {
+        const chk = (name, a, b) => { if ((a || []).length !== (b || []).length) errors.push(`${where}: ru.${name} has ${(a || []).length}, expected ${(b || []).length}`); };
+        chk('s', R.s, L.story); chk('w', R.w, L.w); chk('v', R.v, L.v); chk('q', R.q, L.q || []);
+        words.forEach((w, i) => { w.ru = R.w?.[i]; });
+        vOut.forEach((v, i) => { v.ru = R.v?.[i]; });
+        const qTasks = tasks.filter(t => t.type === 'choice');
+        qTasks.forEach((t, i) => {
+          const [q, opts, ex] = R.q?.[i] || [];
+          if (opts && opts.length !== t.options.length) errors.push(`${where}: ru.q[${i}] options ${opts.length} vs ${t.options.length}`);
+          t.ru = { q, options: opts, ...(ex ? { explain: ex } : {}) };
+          if (t.explain && !ex) errors.push(`${where}: ru.q[${i}] missing explanation`);
+        });
+      }
+      story.lessons.push({ id: L.id, title: L.title, icon: L.icon, story: L.story, words, verses: vOut, tasks,
+        ...(R ? { ru: { title: R.t, story: R.s } } : {}) });
     }
     book.stories.push(story);
   }

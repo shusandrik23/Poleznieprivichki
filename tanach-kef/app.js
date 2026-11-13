@@ -15,6 +15,21 @@ const T = {
   badSub: 'לֹא נוֹרָא – נַחֲזֹר לַשְּׁאֵלָה הַזֹּאת בְּסוֹף הַסִּבּוּב.',
   answer: 'הַתְּשׁוּבָה:',
 };
+// Russian helper mode: Hebrew stays the main text (the child learns Tanach in Hebrew at school),
+// Russian appears under it, and instructions/buttons are in Russian.
+const TR = {
+  continue: 'Дальше', check: 'Проверить',
+  stages: ['История', 'Слова из Танаха', 'Наш стих', 'Тренировка'],
+  listen: '🔊 Послушать',
+  good: ['Молодец!', 'Отлично!', 'Супер!', 'Очень хорошо!', 'Точно!'],
+  bad: 'Почти!',
+  badSub: 'Ничего страшного — вернёмся к этому вопросу в конце круга.',
+  answer: 'Ответ:',
+};
+const ruOn = () => S.lang === 'ru';
+const tr = (he, ru) => (ruOn() && ru ? ru : he);
+const L = key => (ruOn() ? TR[key] : T[key]);
+const sub = ru => (ruOn() && ru ? `<span class="ru" lang="ru" dir="ltr">${esc(ru)}</span>` : '');
 
 let C = null;           // course content + indexes
 let S = loadState();    // saved progress
@@ -25,7 +40,7 @@ const app = document.getElementById('app');
 function loadState() {
   let s = null;
   try { s = JSON.parse(localStorage.getItem(STORE_KEY)); } catch (e) { /* storage blocked */ }
-  return Object.assign({ xp: 0, streak: 0, lastDay: null, done: {}, chest: {}, words: {}, sound: true }, s || {});
+  return Object.assign({ xp: 0, streak: 0, lastDay: null, done: {}, chest: {}, words: {}, sound: true, lang: 'he' }, s || {});
 }
 function save() { try { localStorage.setItem(STORE_KEY, JSON.stringify(S)); } catch (e) { /* ignore */ } }
 const dayKey = (d = new Date()) => `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`;
@@ -118,7 +133,7 @@ function stopSpeech() {
 }
 function warnVoice() {
   if (voiceWarned) return; voiceWarned = true;
-  toast('בַּמַּכְשִׁיר הַזֶּה אֵין קוֹל בְּעִבְרִית – הַהַקְרָאָה עֲלוּלָה לֹא לַעֲבֹד.');
+  toast(tr('בַּמַּכְשִׁיר הַזֶּה אֵין קוֹל בְּעִבְרִית – הַהַקְרָאָה עֲלוּלָה לֹא לַעֲבֹד.', 'На этом устройстве нет голоса на иврите — озвучка может не работать.'));
 }
 
 /* ---------------- content ---------------- */
@@ -165,28 +180,32 @@ function renderHome() {
     <span class="brand">מַסָּע בַּתַּנַ״ךְ</span>
     <span class="chip ${litToday ? '' : 'off'}" title="רֶצֶף יָמִים">🔥 ${st}</span>
     <span class="chip" title="מְגִלּוֹת XP">📜 ${S.xp}</span>
-    <button class="iconbtn" data-act="dict" aria-label="הַמִּלּוֹן שֶׁלִּי">📖</button>
+    <button class="iconbtn" data-act="lang" aria-label="${tr('Русский', 'עברית')}">${ruOn() ? 'עב' : 'RU'}</button>
+    ${ruOn() ? `<button class="iconbtn" data-act="names" aria-label="Имена">👥</button>` : ''}
+    <button class="iconbtn" data-act="dict" aria-label="${tr('הַמִּלּוֹן שֶׁלִּי', 'Мой словарь')}">📖</button>
   </header>
   <nav class="grades" aria-label="כִּתּוֹת">${C.books.map(b => `<button class="grade" data-act="jump" data-book="${b.id}">${esc(b.subtitle)}</button>`).join('')}</nav>`;
 
   if (due.length) {
     html += `<div class="review-card">${mascot('happy')}
-      <p><b>הַמִּלּוֹן שֶׁלִּי</b><br>${due.length === 1 ? 'מִלָּה אַחַת מְחַכָּה' : `${due.length} מִלִּים מְחַכּוֹת`} לַחֲזָרָה קְצָרָה.</p>
-      <button class="btn gold" style="width:auto" data-act="review">חֲזָרָה</button></div>`;
+      <p>${ruOn() ? `<b>Мой словарь</b><br>Слов ждут короткого повторения: ${due.length}.`
+        : `<b>הַמִּלּוֹן שֶׁלִּי</b><br>${due.length === 1 ? 'מִלָּה אַחַת מְחַכָּה' : `${due.length} מִלִּים מְחַכּוֹת`} לַחֲזָרָה קְצָרָה.`}</p>
+      <button class="btn gold" style="width:auto" data-act="review">${tr('חֲזָרָה', 'Повторить')}</button></div>`;
   } else if (!started) {
     html += `<div class="bubble-row" style="margin-top:6px">${mascot('happy')}
-      <div class="bubble">שָׁלוֹם! אֲנִי גִּילִי, הַמְּגִלָּה. בּוֹאוּ נִצָּא לְמַסָּע בַּתַּנַ״ךְ – 3 דַּקּוֹת בְּכָל יוֹם!</div></div>`;
+      <div class="bubble">${ruOn() ? 'Привет! Я Гили, свиток. Отправимся в путешествие по Танаху — 3 минуты каждый день! Текст на иврите, а перевод на русский — прямо под ним.'
+        : 'שָׁלוֹם! אֲנִי גִּילִי, הַמְּגִלָּה. בּוֹאוּ נִצָּא לְמַסָּע בַּתַּנַ״ךְ – 3 דַּקּוֹת בְּכָל יוֹם!'}</div></div>`;
   }
 
   for (const b of C.books) {
     const steps = C.steps[b.id], open = firstOpenIndex(b.id);
-    html += `<section class="book" id="book-${b.id}"><div class="book-banner"><small>${esc(b.subtitle)} · ${Math.min(open, steps.length)}/${steps.length}</small><h2>${esc(b.title)}</h2></div>`;
+    html += `<section class="book" id="book-${b.id}"><div class="book-banner"><small>${esc(b.subtitle)} · ${Math.min(open, steps.length)}/${steps.length}</small><h2>${esc(b.title)}</h2>${sub(b.ru)}</div>`;
     for (const st of b.stories) {
-      html += `<div class="story-title">${esc(st.title)}</div>`;
-      if (st.soon) { html += `<div class="soon">🔒 בְּקָרוֹב</div>`; continue; }
+      html += `<div class="story-title"><span>${esc(st.title)}${sub(st.ru)}</span></div>`;
+      if (st.soon) { html += `<div class="soon">🔒 ${tr('בְּקָרוֹב', 'скоро')}</div>`; continue; }
       html += `<div class="trail">`;
-      const items = st.lessons.map(l => ({ kind: 'lesson', id: l.id, icon: l.icon, label: l.title }))
-        .concat([{ kind: 'chest', id: st.id, icon: '🎁', label: 'אוֹצַר הַחָכְמָה' }]);
+      const items = st.lessons.map(l => ({ kind: 'lesson', id: l.id, icon: l.icon, label: l.title, ru: l.ru?.title }))
+        .concat([{ kind: 'chest', id: st.id, icon: '🎁', label: 'אוֹצַר הַחָכְמָה', ru: 'Сокровищница мудрости' }]);
       for (const it of items) {
         const idx = stepIndex(it.kind, it.id);
         const state = idx < open ? 'done' : idx === open ? 'open' : 'locked';
@@ -195,7 +214,7 @@ function renderHome() {
           <button class="node ${state} ${it.kind === 'chest' ? 'chest' : ''}" data-act="go" data-kind="${it.kind}" data-id="${it.id}" aria-label="${esc(it.label)}">
             ${state === 'locked' ? '🔒' : it.icon}${state === 'done' ? '<span class="check">✓</span>' : ''}
           </button>
-          <span class="node-label">${esc(it.label)}</span></div>`;
+          <span class="node-label">${esc(it.label)}${sub(it.ru)}</span></div>`;
       }
       html += `</div>`;
     }
@@ -233,7 +252,7 @@ function startReview() {
   let ids = dueWords();
   if (!ids.length) ids = Object.keys(S.words).filter(id => C.wordById[id]).sort((a, b) => S.words[a].box - S.words[b].box);
   ids = shuffle(ids).slice(0, 6);
-  if (!ids.length) { toast('עוֹד אֵין מִלִּים בַּמִּלּוֹן – סַיְּמוּ שִׁעוּר רִאשׁוֹן!'); return; }
+  if (!ids.length) { toast(tr('עוֹד אֵין מִלִּים בַּמִּלּוֹן – סַיְּמוּ שִׁעוּר רִאשׁוֹן!', 'В словаре пока нет слов — пройдите первый урок!')); return; }
   const all = Object.values(C.wordById);
   const tasks = ids.map((id, i) => {
     const w = C.wordById[id];
@@ -244,6 +263,8 @@ function startReview() {
       type: 'choice', kind: 'review', wordId: id, tanachOpts: flip,
       q: flip ? `אֵיךְ כָּתוּב בַּתַּנַ״ךְ „${w.m}”?` : `מָה פֵּרוּשׁ „${w.t}”?`,
       options: opts.map(o => flip ? o.t : o.m), answer: opts.indexOf(w), say: w.t,
+      ru: { q: flip ? `Как это написано в Танахе: «${w.m}»${w.ru ? ` (${w.ru})` : ''}?` : `Что значит «${w.t}»?`,
+            options: flip ? null : opts.map(o => o.ru) },
     };
   });
   R = { kind: 'review', stage: 3, queue: tasks, total: tasks.length, solved: 0, mistakes: 0, wrong: new Set(), reviewIds: ids, ui: {} };
@@ -254,7 +275,7 @@ function prepTask(t, les) {
   t = Object.assign({}, t);
   if (t.type === 'match') {
     const words = les.words;
-    t.pairs = words.map(w => ({ id: w.id, t: w.t, m: w.m }));
+    t.pairs = words.map(w => ({ id: w.id, t: w.t, m: w.m, ru: w.ru }));
     t.left = shuffle(t.pairs.map(p => p.id));
     t.right = shuffle(t.pairs.map(p => p.id));
   } else if (t.type === 'order') {
@@ -265,6 +286,7 @@ function prepTask(t, les) {
     const order = shuffle(t.options.map((_, i) => i));
     const correct = t.type === 'who' ? t.options.indexOf(t.answer) : t.answer;
     t.options = order.map(i => t.options[i]);
+    if (t.ru?.options) t.ru = { ...t.ru, options: order.map(i => t.ru.options[i]) };
     t.answer = order.indexOf(correct);
   }
   return t;
@@ -300,26 +322,26 @@ function renderSession() {
 
 function renderStory() {
   const l = R.les;
-  shell(`<span class="stage-label">${T.stages[0]}</span>
-    <h1>${esc(l.title)}</h1>
-    <div class="story">${l.story.map(p => `<p>${esc(p)}</p>`).join('')}</div>
-    <button class="listen" data-act="say-story">${T.listen}</button>`,
-    `<button class="btn" data-act="next-stage">${T.continue}</button>`);
+  shell(`<span class="stage-label">${L('stages')[0]}</span>
+    <h1>${esc(l.title)}${sub(l.ru?.title)}</h1>
+    <div class="story">${l.story.map((p, i) => `<p>${esc(p)}${sub(l.ru?.story?.[i])}</p>`).join('')}</div>
+    <button class="listen" data-act="say-story">${L('listen')}</button>`,
+    `<button class="btn" data-act="next-stage">${L('continue')}</button>`);
 }
 
 function renderWords() {
   const l = R.les;
   const all = l.words.every(w => R.flipped.has(w.id));
-  shell(`<span class="stage-label">${T.stages[1]}</span>
-    <h1>לַחֲצוּ עַל כָּל כַּרְטִיס כְּדֵי לִפְגֹּשׁ אֶת הַמִּלָּה</h1>
+  shell(`<span class="stage-label">${L('stages')[1]}</span>
+    <h1>${tr('לַחֲצוּ עַל כָּל כַּרְטִיס כְּדֵי לִפְגֹּשׁ אֶת הַמִּלָּה', 'Нажмите на каждую карточку, чтобы познакомиться со словом')}</h1>
     <div class="cards">${l.words.map(w => {
       const f = R.flipped.has(w.id);
       return `<button class="card ${f ? 'flipped' : ''}" data-act="flip" data-id="${w.id}">
         <span class="t">${esc(w.t)}</span>
-        ${f ? `<span class="arrow">בְּעִבְרִית שֶׁלָּנוּ</span><span class="m">${esc(w.m)}</span>${w.note ? `<span class="note">${esc(w.note)}</span>` : ''}`
-            : `<span class="tap">לַחֲצוּ 👆</span>`}
+        ${f ? `<span class="arrow">${tr('בְּעִבְרִית שֶׁלָּנוּ', 'на современном иврите')}</span><span class="m">${esc(w.m)}</span>${sub(w.ru)}${w.note && !ruOn() ? `<span class="note">${esc(w.note)}</span>` : ''}`
+            : `<span class="tap">${tr('לַחֲצוּ', 'нажмите')} 👆</span>`}
       </button>`; }).join('')}</div>`,
-    `<button class="btn" data-act="next-stage" ${all ? '' : 'disabled'}>${T.continue}</button>`);
+    `<button class="btn" data-act="next-stage" ${all ? '' : 'disabled'}>${L('continue')}</button>`);
 }
 
 function verseHtml(text) {
@@ -336,15 +358,19 @@ function verseHtml(text) {
 
 function renderVerse() {
   const l = R.les, p = R.ui.pop;
-  shell(`<span class="stage-label">${T.stages[2]}</span>
-    <h1>קוֹרְאִים אֶת הַפָּסוּק מֵהַתַּנַ״ךְ</h1>
-    <p class="hint">מִלָּה צְבוּעָה = מִלָּה מֵהַשִּׁעוּר. מִלָּה עִם קַו נְקֻדּוֹת = עוֹד רֶמֶז. לַחֲצוּ עֲלֵיהֶן!</p>
+  const shown = R.ui.tr || {};
+  shell(`<span class="stage-label">${L('stages')[2]}</span>
+    <h1>${tr('קוֹרְאִים אֶת הַפָּסוּק מֵהַתַּנַ״ךְ', 'Читаем стих из Танаха')}</h1>
+    <p class="hint">${tr('מִלָּה צְבוּעָה = מִלָּה מֵהַשִּׁעוּר. מִלָּה עִם קַו נְקֻדּוֹת = עוֹד רֶמֶז. לַחֲצוּ עֲלֵיהֶן!',
+      'Цветное слово — слово из урока. Слово с пунктиром — ещё одна подсказка. Нажимайте на них! Сначала попробуйте понять сами, а потом откройте перевод.')}</p>
     ${l.verses.map((v, i) => `<div class="verse"><div class="ref">${esc(v.ref)}</div>
       <div class="text">${verseHtml(v.text)}</div>
-      <button class="listen" data-act="say-verse" data-i="${i}">${T.listen}</button></div>`).join('')}
-    ${p ? `<div class="pop" id="pop"><span class="pt">${esc(p.t)}</span><span class="pm">← ${esc(p.m)}</span>
+      ${shown[i] ? `<p class="verse-ru" lang="ru" dir="ltr">${esc(v.ru)}</p>` : ''}
+      <div class="verse-tools"><button class="listen" data-act="say-verse" data-i="${i}">${L('listen')}</button>
+      ${ruOn() && v.ru ? `<button class="listen" data-act="tr" data-i="${i}">${shown[i] ? 'Скрыть перевод' : '🇷🇺 Показать перевод'}</button>` : ''}</div></div>`).join('')}
+    ${p ? `<div class="pop" id="pop"><span class="pt">${esc(p.t)}</span><span class="pm">← ${esc(p.m)}${sub(p.ru)}</span>
       <button class="listen" style="margin:0" data-act="say" data-text="${esc(p.t)}">🔊</button></div>` : ''}`,
-    `<button class="btn" data-act="next-stage">${T.continue}</button>`);
+    `<button class="btn" data-act="next-stage">${L('continue')}</button>`);
   if (p) document.getElementById('pop').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
@@ -352,54 +378,59 @@ const TASK_TITLE = {
   match: 'מִלּוֹן תַּנַ״ךְ', order: 'הַשְׁלֵם אֶת הַפָּסוּק', who: 'מִי אָמַר?',
   meaning: 'מָה הַפֵּרוּשׁ?', detective: 'בַּלַּשׁ הַתַּנַ״ךְ', review: 'הַמִּלּוֹן שֶׁלִּי',
 };
+const TASK_TITLE_RU = {
+  match: 'Переводчик с языка Танаха', order: 'Собери стих', who: 'Кто это сказал?',
+  meaning: 'Что это значит?', detective: 'Детектив Танаха', review: 'Мой словарь',
+};
 
 function renderTask() {
   const t = R.queue[0], ui = R.ui;
   let body = '', canCheck = false;
-  const label = TASK_TITLE[t.type === 'choice' ? t.kind : t.type] || '';
+  const kind = t.type === 'choice' ? t.kind : t.type;
+  const label = (ruOn() ? TASK_TITLE_RU : TASK_TITLE)[kind] || '';
 
   if (t.type === 'match') {
     ui.matched = ui.matched || new Set();
-    body = `<h1>חַבְּרוּ כָּל מִלָּה מֵהַתַּנַ״ךְ לַמִּלָּה שֶׁלָּנוּ</h1>
+    body = `<h1>${tr('חַבְּרוּ כָּל מִלָּה מֵהַתַּנַ״ךְ לַמִּלָּה שֶׁלָּנוּ', 'Соедините каждое слово из Танаха с современным')}</h1>
       <div class="match"><div class="col">${t.left.map(id => {
         const p = t.pairs.find(x => x.id === id), ok = ui.matched.has(id);
         return `<button class="tile tan ${ok ? 'ok' : ''} ${ui.selL === id ? 'sel' : ''}" data-act="mL" data-id="${id}" ${ok ? 'disabled' : ''}>${esc(p.t)}</button>`;
       }).join('')}</div><div class="col">${t.right.map(id => {
         const p = t.pairs.find(x => x.id === id), ok = ui.matched.has(id);
-        return `<button class="tile ${ok ? 'ok' : ''} ${ui.selR === id ? 'sel' : ''}" data-act="mR" data-id="${id}" ${ok ? 'disabled' : ''}>${esc(p.m)}</button>`;
+        return `<button class="tile ${ok ? 'ok' : ''} ${ui.selR === id ? 'sel' : ''}" data-act="mR" data-id="${id}" ${ok ? 'disabled' : ''}>${esc(p.m)}${sub(p.ru)}</button>`;
       }).join('')}</div></div>`;
-    shell(`<span class="stage-label">${label}</span>${body}`, ui.fb || `<p class="hint" style="text-align:center;margin:0">בַּחֲרוּ זוּג אַחֲרֵי זוּג</p>`);
+    shell(`<span class="stage-label">${label}</span>${body}`, ui.fb || `<p class="hint" style="text-align:center;margin:0">${tr('בַּחֲרוּ זוּג אַחֲרֵי זוּג', 'Выбирайте пару за парой')}</p>`);
     return;
   }
 
   if (t.type === 'order') {
     ui.picked = ui.picked || [];
-    body = `<h1>סַדְּרוּ אֶת הַמִּלִּים לְפִי הַפָּסוּק</h1>
+    body = `<h1>${tr('סַדְּרוּ אֶת הַמִּלִּים לְפִי הַפָּסוּק', 'Расставьте слова в порядке стиха')}</h1>
       <div class="build-line">${ui.picked.map((ti, k) => `<button class="word" data-act="unpick" data-k="${k}">${esc(t.tiles[ti])}</button>`).join('')}</div>
       <div class="bank">${t.tiles.map((w, i) => `<button class="word ${ui.picked.includes(i) ? 'used' : ''}" data-act="pick" data-i="${i}" ${ui.locked ? 'disabled' : ''}>${esc(w)}</button>`).join('')}</div>`;
     canCheck = ui.picked.length > 0;
   }
 
   if (t.type === 'who') {
-    body = `<h1>מִי אָמַר אֶת הַמִּלִּים הָאֵלֶּה?</h1>
+    body = `<h1>${tr('מִי אָמַר אֶת הַמִּלִּים הָאֵלֶּה?', 'Кто сказал эти слова?')}</h1>
       <div class="who-quote">„${esc(t.quote)}”</div>
       <div class="who-grid">${t.options.map((cid, i) => {
         const ch = C.characters[cid];
-        return `<button class="opt ${ui.sel === i ? 'sel' : ''}" data-act="sel" data-i="${i}" ${ui.locked ? 'disabled' : ''}><span class="face">${ch.emoji}</span>${esc(ch.name)}</button>`;
+        return `<button class="opt ${ui.sel === i ? 'sel' : ''}" data-act="sel" data-i="${i}" ${ui.locked ? 'disabled' : ''}><span class="face">${ch.emoji}</span>${esc(ch.name)}${sub(ch.ru)}</button>`;
       }).join('')}</div>`;
     canCheck = ui.sel != null;
   }
 
   if (t.type === 'choice') {
-    body = `<h1>${esc(t.q)}</h1>
-      ${t.say ? `<button class="listen" data-act="say" data-text="${esc(t.say)}">${T.listen}</button>` : ''}
+    body = `<h1>${esc(t.q)}${sub(t.ru?.q)}</h1>
+      ${t.say ? `<button class="listen" data-act="say" data-text="${esc(t.say)}">${L('listen')}</button>` : ''}
       <div class="options">${t.options.map((o, i) => `<button class="opt ${ui.sel === i ? 'sel' : ''}" data-act="sel" data-i="${i}" ${ui.locked ? 'disabled' : ''}
-        ${t.tanachOpts ? 'style="font-family:var(--font-text);font-size:26px;font-weight:700"' : ''}>${esc(o)}</button>`).join('')}</div>`;
+        ${t.tanachOpts ? 'style="font-family:var(--font-text);font-size:26px;font-weight:700"' : ''}>${esc(o)}${sub(t.ru?.options?.[i])}</button>`).join('')}</div>`;
     canCheck = ui.sel != null;
   }
 
   shell(`<span class="stage-label">${label}</span>${body}`,
-    ui.fb || `<button class="btn" data-act="check" ${canCheck ? '' : 'disabled'}>${T.check}</button>`);
+    ui.fb || `<button class="btn" data-act="check" ${canCheck ? '' : 'disabled'}>${L('check')}</button>`);
 }
 
 function feedback(ok, extra) {
@@ -407,9 +438,9 @@ function feedback(ok, extra) {
   ui.locked = true;
   ui.ok = ok;
   ui.fb = `<div class="fb">${mascot(ok ? 'happy' : 'oops')}<div>
-      <strong>${ok ? pick(T.good) : T.bad}</strong>
-      ${extra ? `<p>${extra}</p>` : ''}${ok ? '' : `<p>${T.badSub}</p>`}</div></div>
-    <button class="btn ${ok ? 'okb' : 'badb'}" data-act="after">${T.continue}</button>`;
+      <strong>${ok ? pick(L('good')) : L('bad')}</strong>
+      ${extra ? `<p>${extra}</p>` : ''}${ok ? '' : `<p>${L('badSub')}</p>`}</div></div>
+    <button class="btn ${ok ? 'okb' : 'badb'}" data-act="after">${L('continue')}</button>`;
   renderTask();
   const b = document.getElementById('bottom');
   b.classList.add(ok ? 'ok' : 'bad');
@@ -421,14 +452,16 @@ function check() {
     const got = ui.picked.map(i => t.tiles[i]).join(' ');
     const ok = got === t.target.join(' ');
     if (ok) speak(t.text);
-    return feedback(ok, ok ? '' : `${T.answer} <b style="font-family:var(--font-text);font-size:20px">${esc(t.text)}</b>`);
+    return feedback(ok, ok ? '' : `${L('answer')} <b style="font-family:var(--font-text);font-size:20px">${esc(t.text)}</b>`);
   }
   const ok = ui.sel === t.answer;
   if (t.kind === 'review' && !ok) R.wrong.add(t.wordId);
   if (t.say && ok) speak(t.say);
-  const right = t.type === 'who' ? C.characters[t.options[t.answer]].name : t.options[t.answer];
-  let extra = t.explain ? esc(t.explain) : '';
-  if (!ok) extra = `${T.answer} <b>${esc(right)}</b>${extra ? '<br>' + extra : ''}`;
+  const ch = t.type === 'who' ? C.characters[t.options[t.answer]] : null;
+  const right = ch ? ch.name : t.options[t.answer];
+  const rightRu = ch ? ch.ru : t.ru?.options?.[t.answer];
+  let extra = t.explain ? esc(t.explain) + sub(t.ru?.explain) : '';
+  if (!ok) extra = `${L('answer')} <b>${esc(right)}</b>${sub(rightRu)}${extra ? '<br>' + extra : ''}`;
   feedback(ok, extra);
 }
 
@@ -474,7 +507,7 @@ function matchTap(side, id) {
 
 /* ---------------- finish ---------------- */
 function finish() {
-  let xp = 0, title = 'כָּל הַכָּבוֹד!', sub = '', newWords = 0;
+  let xp = 0, title = tr('כָּל הַכָּבוֹד!', 'Молодец!'), note = '', newWords = 0;
   const perfect = R.mistakes === 0;
   if (R.kind === 'lesson') {
     const l = R.les;
@@ -483,17 +516,17 @@ function finish() {
       for (const w of l.words) if (!S.words[w.id]) { S.words[w.id] = { box: 1, due: Date.now() + DAY }; newWords++; }
     }
     xp = XP_LESSON + (perfect ? XP_PERFECT : 0);
-    title = 'סִיַּמְתֶּם אֶת הַשִּׁעוּר!';
-    sub = newWords ? `${newWords} מִלִּים חֲדָשׁוֹת נִכְנְסוּ לַמִּלּוֹן שֶׁלִּי 📖` : '';
+    title = tr('סִיַּמְתֶּם אֶת הַשִּׁעוּר!', 'Урок пройден!');
+    note = newWords ? tr(`${newWords} מִלִּים חֲדָשׁוֹת נִכְנְסוּ לַמִּלּוֹן שֶׁלִּי 📖`, `Новых слов в словаре: ${newWords} 📖`) : '';
   } else if (R.kind === 'chest') {
     S.chest[R.story.id] = true;
     xp = XP_CHEST + (perfect ? XP_PERFECT : 0);
-    title = 'פְּתַחְתֶּם אֶת אוֹצַר הַחָכְמָה! 🎁';
-    sub = `סִיַּמְתֶּם אֶת „${R.story.title}”.`;
+    title = tr('פְּתַחְתֶּם אֶת אוֹצַר הַחָכְמָה! 🎁', 'Сокровищница мудрости открыта! 🎁');
+    note = tr(`סִיַּמְתֶּם אֶת „${R.story.title}”.`, `История «${R.story.ru || R.story.title}» пройдена.`);
   } else {
     xp = XP_REVIEW;
-    title = 'חֲזָרָה מֻצְלַחַת!';
-    sub = 'הַמִּלִּים יַחְזְרוּ אֲלֵיכֶם בְּעוֹד כַּמָּה יָמִים.';
+    title = tr('חֲזָרָה מֻצְלַחַת!', 'Повторение удалось!');
+    note = tr('הַמִּלִּים יַחְזְרוּ אֲלֵיכֶם בְּעוֹד כַּמָּה יָמִים.', 'Слова вернутся к вам через несколько дней.');
     for (const id of R.reviewIds) {
       const w = S.words[id]; if (!w) continue;
       w.box = R.wrong.has(id) ? 1 : Math.min(w.box + 1, BOX_DAYS.length - 1);
@@ -505,13 +538,13 @@ function finish() {
   const lit = markActive();
   save();
   app.innerHTML = `<div class="finish">${mascot('happy')}
-      <h1>${title}</h1>${sub ? `<p style="margin:0">${sub}</p>` : ''}
+      <h1>${title}</h1>${note ? `<p style="margin:0">${note}</p>` : ''}
       <div class="stats">
-        <div class="stat"><b>+${xp}</b><span>📜 מְגִלּוֹת XP</span></div>
-        <div class="stat"><b>🔥 ${streakNow()}</b><span>${lit ? 'הַרֶצֶף הִתְעַדְכֵּן!' : 'רֶצֶף יָמִים'}</span></div>
-        ${perfect ? `<div class="stat"><b>💯</b><span>בְּלִי טָעֻיּוֹת</span></div>` : ''}
+        <div class="stat"><b>+${xp}</b><span>📜 ${tr('מְגִלּוֹת XP', 'свитки опыта')}</span></div>
+        <div class="stat"><b>🔥 ${streakNow()}</b><span>${lit ? tr('הַרֶצֶף הִתְעַדְכֵּן!', 'серия продлена!') : tr('רֶצֶף יָמִים', 'дней подряд')}</span></div>
+        ${perfect ? `<div class="stat"><b>💯</b><span>${tr('בְּלִי טָעֻיּוֹת', 'без ошибок')}</span></div>` : ''}
       </div></div>
-    <div class="bottom"><div class="bottom-inner"><button class="btn" data-act="home">${T.continue}</button></div></div>`;
+    <div class="bottom"><div class="bottom-inner"><button class="btn" data-act="home">${L('continue')}</button></div></div>`;
   R = null;
 }
 
@@ -520,19 +553,33 @@ function renderDict() {
   onHome = false;
   const ids = Object.keys(S.words).filter(id => C.wordById[id]);
   const due = new Set(dueWords());
-  app.innerHTML = `<header class="topbar"><button class="close" data-act="home" aria-label="חֲזָרָה">→</button>
-      <span class="brand">הַמִּלּוֹן שֶׁלִּי</span></header>
+  app.innerHTML = `<header class="topbar"><button class="close" data-act="home" aria-label="${tr('חֲזָרָה', 'Назад')}">→</button>
+      <span class="brand">${tr('הַמִּלּוֹן שֶׁלִּי', 'Мой словарь')}</span></header>
     <div class="dict">
-      <p class="hint">כָּל מִלָּה שֶׁלְּמַדְתֶּם נִשְׁמֶרֶת כָּאן. הַנְּקֻדּוֹת מַרְאוֹת כַּמָּה טוֹב אַתֶּם זוֹכְרִים אוֹתָהּ.</p>
-      ${ids.length ? `<button class="btn gold" data-act="review">חֲזָרָה עַל מִלִּים (${due.size || ids.length})</button>` : ''}
+      <p class="hint">${tr('כָּל מִלָּה שֶׁלְּמַדְתֶּם נִשְׁמֶרֶת כָּאן. הַנְּקֻדּוֹת מַרְאוֹת כַּמָּה טוֹב אַתֶּם זוֹכְרִים אוֹתָהּ.', 'Здесь хранится каждое выученное слово. Точки показывают, насколько хорошо вы его помните.')}</p>
+      ${ids.length ? `<button class="btn gold" data-act="review">${tr('חֲזָרָה עַל מִלִּים', 'Повторить слова')} (${due.size || ids.length})</button>` : ''}
       <div class="dict-list">${ids.length ? ids.map(id => {
         const w = C.wordById[id], s = S.words[id];
-        return `<div class="drow"><span class="t">${esc(w.t)}</span><span class="m">${esc(w.m)}</span>
+        return `<div class="drow"><span class="t">${esc(w.t)}</span><span class="m">${esc(w.m)}${sub(w.ru)}</span>
           <span class="dots" title="רָמָה ${s.box}">${[1, 2, 3, 4, 5].map(n => `<i class="${n <= s.box ? 'on' : ''}"></i>`).join('')}</span>
           <button class="iconbtn" data-act="say" data-text="${esc(w.t)}" aria-label="הַשְׁמָעָה">🔊</button></div>`;
-      }).join('') : `<div class="empty">${mascot('think')}<p>הַמִּלּוֹן עוֹד רֵיק.<br>סַיְּמוּ שִׁעוּר – וְהַמִּלִּים יוֹפִיעוּ כָּאן.</p></div>`}</div>
-      <div class="setting"><span>🔊 הַקְרָאָה בְּקוֹל</span>
-        <button class="iconbtn" data-act="sound">${S.sound ? 'פּוֹעֵל' : 'כָּבוּי'}</button></div>
+      }).join('') : `<div class="empty">${mascot('think')}<p>${tr('הַמִּלּוֹן עוֹד רֵיק.<br>סַיְּמוּ שִׁעוּר – וְהַמִּלִּים יוֹפִיעוּ כָּאן.', 'Словарь пока пуст.<br>Пройдите урок — и слова появятся здесь.')}</p></div>`}</div>
+      <div class="setting"><span>🔊 ${tr('הַקְרָאָה בְּקוֹל', 'Озвучка')}</span>
+        <button class="iconbtn" data-act="sound">${S.sound ? tr('פּוֹעֵל', 'вкл.') : tr('כָּבוּי', 'выкл.')}</button></div>
+      <div class="setting"><span>🌐 ${tr('תִּרְגּוּם לְרוּסִית', 'Перевод на русский')}</span>
+        <button class="iconbtn" data-act="lang-dict">${ruOn() ? 'вкл.' : 'כָּבוּי'}</button></div>
+    </div>`;
+}
+
+/* ---------------- names (Russian mode) ---------------- */
+function renderNames() {
+  onHome = false;
+  app.innerHTML = `<header class="topbar"><button class="close" data-act="home" aria-label="Назад">→</button>
+      <span class="brand">Имена и названия</span></header>
+    <div class="dict">
+      <p class="hint" lang="ru">В школе на иврите имена звучат иначе, чем в русских переводах Библии. Например, נֹחַ — это Ноах, а по-русски его называют Ной. В переводах в приложении мы пишем так: «Ноах (Ной)».</p>
+      <div class="names" lang="ru"><div class="nrow nhead"><span>иврит</span><span>как говорят в школе</span><span>по-русски</span></div>
+      ${C.names.map(([he, school, rus]) => `<div class="nrow"><span class="nhe" lang="he" dir="rtl">${esc(he)}</span><span>${esc(school)}</span><span>${esc(rus)}</span></div>`).join('')}</div>
     </div>`;
 }
 
@@ -543,7 +590,7 @@ app.addEventListener('click', e => {
   const a = el.dataset.act;
   switch (a) {
     case 'go': {
-      if (!stepUnlocked(el.dataset.kind, el.dataset.id)) { toast('🔒 קֹדֶם סַיְּמוּ אֶת הַשִּׁעוּרִים הַקּוֹדְמִים'); return; }
+      if (!stepUnlocked(el.dataset.kind, el.dataset.id)) { toast(tr('🔒 קֹדֶם סַיְּמוּ אֶת הַשִּׁעוּרִים הַקּוֹדְמִים', '🔒 Сначала пройдите предыдущие уроки')); return; }
       el.dataset.kind === 'lesson' ? startLesson(el.dataset.id) : startChest(el.dataset.id);
       break;
     }
@@ -553,6 +600,10 @@ app.addEventListener('click', e => {
     case 'dict': renderDict(); window.scrollTo(0, 0); break;
     case 'review': startReview(); window.scrollTo(0, 0); break;
     case 'sound': S.sound = !S.sound; save(); renderDict(); break;
+    case 'lang': S.lang = ruOn() ? 'he' : 'ru'; save(); renderHome(); toast(ruOn() ? 'Перевод на русский включён' : 'הַתִּרְגּוּם לְרוּסִית כָּבוּי'); break;
+    case 'lang-dict': S.lang = ruOn() ? 'he' : 'ru'; save(); renderDict(); break;
+    case 'names': renderNames(); window.scrollTo(0, 0); break;
+    case 'tr': R.ui.tr = { ...(R.ui.tr || {}), [el.dataset.i]: !(R.ui.tr || {})[el.dataset.i] }; renderVerse(); break;
     case 'next-stage': R.stage++; R.ui = {}; renderSession(); window.scrollTo(0, 0); break;
     case 'say-story': speak(R.les.story.join(' ')); break;
     case 'say-verse': { const v = R.les.verses[+el.dataset.i]; speak(plain(v.text), v.audio); break; }
@@ -564,8 +615,8 @@ app.addEventListener('click', e => {
       break;
     }
     case 'vw': {
-      const m = el.dataset.w ? C.wordById[el.dataset.w].m : el.dataset.g;
-      R.ui.pop = { t: el.dataset.t, m };
+      const w = el.dataset.w ? C.wordById[el.dataset.w] : null;
+      R.ui.pop = { t: el.dataset.t, m: w ? w.m : el.dataset.g, ru: w?.ru };
       speak(el.dataset.t);
       renderVerse();
       break;
@@ -582,4 +633,4 @@ app.addEventListener('click', e => {
 
 /* ---------------- boot ---------------- */
 loadCourse().then(c => { C = c; renderHome(); })
-  .catch(() => { app.innerHTML = `<div class="empty">${mascot('oops')}<p>לֹא הִצְלַחְנוּ לִטְעֹן אֶת הַשִּׁעוּרִים. נַסּוּ לְרַעְנֵן אֶת הַדַּף.</p></div>`; });
+  .catch(() => { app.innerHTML = `<div class="empty">${mascot('oops')}<p>${tr('לֹא הִצְלַחְנוּ לִטְעֹן אֶת הַשִּׁעוּרִים. נַסּוּ לְרַעְנֵן אֶת הַדַּף.', 'Не удалось загрузить уроки. Попробуйте обновить страницу.')}</p></div>`; });
