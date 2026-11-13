@@ -312,7 +312,7 @@ function habitCard(kid, h, day, ctx = 'kid') {
   const starIcons = '⭐'.repeat(Math.min(h.stars, 3)) + (h.stars > 3 ? `×${h.stars}` : '');
   const sub = st === 'pending' ? `<span class="tag wait">⏳ ${t('kid.pending')}</span>`
     : st === 'rejected' ? `<span class="tag no">${t('kid.rejected')}</span>`
-    : `<span class="stars-sm">${starIcons}</span>${streak > 1 ? ` <span class="tag fire">${t('kid.streak', { n: streak })}</span>` : ''}`;
+    : `<span class="stars-sm">${starIcons}</span>${streak > 1 ? ` <span class="tag fire">${t('kid.streak', { n: streak })}</span>` : ''}${h.from ? ` <span class="tag from">${t('kid.from', { name: e(h.from) })}</span>` : ''}`;
   return `<button class="habit-card ${st}${ui.just === h.id + day ? ' just' : ''}" data-act="toggle" data-kid="${kid.id}" data-hid="${h.id}" data-day="${day}" data-ctx="${ctx}">
     <span class="h-emoji">${e(h.emoji || '⭐')}</span>
     <span class="h-body"><span class="h-name">${e(h.name)}</span><span class="h-sub">${sub}</span></span>
@@ -376,10 +376,7 @@ function kidStickers(kid) {
 
 function participantName(pid) {
   if (pid.startsWith('k:')) { const k = S.kids[pid.slice(2)]; return k ? `${k.avatar || ''} ${k.name}` : '—'; }
-  const uid = pid.slice(2);
-  if (uid === 'local') return '👤 ' + t('ch.parent');
-  const n = S.family?.parents?.[uid];
-  return '👤 ' + (n ? n.split(' ')[0] : t('ch.parent'));
+  return '👤 ' + G.parentName(S.family, pid.slice(2), t('ch.parent'));
 }
 
 function challengeCard(ch, me) {
@@ -407,11 +404,24 @@ function sortedChallenges() {
   return (S.family?.challenges || []).slice().sort((a, b) => order[G.challengeState(a)] - order[G.challengeState(b)] || (a.start < b.start ? 1 : -1));
 }
 
+function adultsList() {
+  if (S.mode === 'local') return [['p:local', t('ch.parent')]];
+  return Object.entries(S.family?.parents || {}).map(([uid, name]) => ['p:' + uid, name || t('ch.parent')]);
+}
+
 function kidChallenges(kid) {
   const pid = 'k:' + kid.id;
   const list = sortedChallenges().filter(ch => ch.participants?.includes(pid));
-  if (!list.length) return `<div class="empty">🏆<p>${t('kid.noChallenges')}</p></div>`;
-  return list.map(ch => challengeCard(ch, pid)).join('');
+  let html = `<button class="btn primary big" data-act="propose" data-kid="${kid.id}">${t('kid.propose')}</button><div class="spacer"></div>`;
+  const props = (kid.proposals || []).slice().reverse().slice(0, 6);
+  if (props.length) {
+    html += `<h3 class="section">${t('kid.proposals')}</h3><div class="card list">${props.map(p => {
+      const st = G.proposalStatus(kid, p);
+      return `<div class="row-between"><span>${e(p.emoji)} ${e(p.name)} · ${e(participantName(p.to))}</span><span class="tag ${st === 'accepted' ? 'ok' : st === 'declined' ? 'no' : 'wait'}">${t(st === 'accepted' ? 'kid.propAccepted' : st === 'declined' ? 'kid.propDeclined' : 'kid.propPending')}</span></div>`;
+    }).join('')}</div>`;
+  }
+  if (!list.length) return html + `<div class="empty">🏆<p>${t('kid.noChallenges')}</p></div>`;
+  return html + list.map(ch => challengeCard(ch, pid)).join('');
 }
 
 // ---------- Родитель ----------
@@ -423,7 +433,8 @@ function parentView() {
   else if (tab === 'challenges') body = parentChallenges();
   else if (tab === 'settings') body = parentSettings();
   else body = parentHome();
-  const pending = kidsList().reduce((n, k) => n + G.pendingList(k).length + (k.requests || []).filter(r => G.requestStatus(k, r) === 'pending').length, 0);
+  const pending = kidsList().reduce((n, k) => n + G.pendingList(k).length + (k.requests || []).filter(r => G.requestStatus(k, r) === 'pending').length
+    + G.pendingProposals(k).filter(p => p.to === parentPid() || S.mode === 'local').length, 0);
   const tabs = [['home', '🏠', t('tab.home'), pending], ['kids', '👧', t('tab.kids')], ['rewards', '🎁', t('tab.rewards')], ['challenges', '🏆', t('tab.challenges')], ['settings', '⚙️', t('tab.settings')]];
   const fname = S.family?.name;
   const date = new Date().toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' });
@@ -462,7 +473,15 @@ function parentHome() {
         <button class="btn sm primary" data-act="decide" data-kid="${kid.id}" data-id="${r.id}" data-v="given">🎁 ${t('home.give')}</button>
         <button class="btn sm" data-act="decide" data-kid="${kid.id}" data-id="${r.id}" data-v="rejected" aria-label="${t('home.decline')}">✕</button></div>`).join('')}</div>`;
   }
-  if (!approvals.length && !requests.length) html += `<p class="hint center">${t('home.allClear')}</p>`;
+  const me = parentPid();
+  const proposals = kids.flatMap(k => G.pendingProposals(k).filter(p => p.to === me || S.mode === 'local').map(p => ({ p, kid: k })));
+  if (proposals.length) {
+    html += `<h3 class="section">${t('home.proposals')}</h3><div class="card list">${proposals.map(({ p, kid }) => `
+      <div class="appr"><div class="grow"><b>${e(kid.avatar)} ${e(kid.name)}</b> · ${e(p.emoji)} ${e(p.name)}<div class="small">${p.days} ${pw(p.days, 'day')}</div></div>
+        <button class="btn sm primary" data-act="answerProposal" data-kid="${kid.id}" data-id="${p.id}" data-v="accepted">💪 ${t('home.acceptCh')}</button>
+        <button class="btn sm" data-act="answerProposal" data-kid="${kid.id}" data-id="${p.id}" data-v="declined" aria-label="${t('home.decline')}">✕</button></div>`).join('')}</div>`;
+  }
+  if (!approvals.length && !requests.length && !proposals.length) html += `<p class="hint center">${t('home.allClear')}</p>`;
   return html;
 }
 
@@ -628,6 +647,17 @@ function modalView() {
       return `${close}<form data-form="text" class="stack"><h2>${e(m.title)}</h2><input id="t_val" maxlength="${m.max || 40}" value="${e(m.value || '')}" placeholder="${e(m.ph || '')}" data-fresh>
         <button class="btn primary big">${t('common.save')}</button></form>`;
     case 'challenge': return close + challengeForm(m);
+    case 'propose': {
+      const d = m.draft;
+      const adults = adultsList();
+      if (!adults.length) return `${close}<div class="center"><div class="cele-emoji">🤷</div><p>${t('kid.noParents')}</p></div>`;
+      return `${close}<form data-form="propose" class="stack"><h2>${t('kid.proposeTitle')}</h2>
+        <div class="field"><span>${t('kid.proposeWho')}</span><div class="chips">${adults.map(([pid, name]) => `<button type="button" class="chip big ${d.to === pid ? 'sel' : ''}" data-act="mdraft" data-k="to" data-v="${pid}">👤 ${e(name)}</button>`).join('')}</div></div>
+        <label class="field"><span>${t('ch.habit')}</span><input id="c_name" maxlength="40" value="${e(d.name)}" data-fresh></label>
+        <div class="chips">${['read', 'sport', 'veggies', 'screen', 'water', 'sleep'].map(code => { const h = HABITS.find(x => x.code === code); return `<button type="button" class="chip" data-act="chIdea" data-code="${code}">${h.emoji} ${e(h[lang] || h.en)}</button>`; }).join('')}</div>
+        <div class="field"><span>${t('ch.days')}</span><div class="chips">${[3, 7, 14, 21].map(n => `<button type="button" class="chip ${d.days === n ? 'sel' : ''}" data-act="mdraft" data-k="days" data-v="${n}" data-num>${n}</button>`).join('')}</div></div>
+        <button class="btn primary big">${t('kid.proposeSend')} ⚔️</button></form>`;
+    }
     case 'childSettings':
       return `${close}<h2>${t('set.title')}</h2><div class="list">
         <div class="row-between"><span>${t('set.lang')}</span><div class="chips">${LANGS.map(([c, n]) => `<button class="chip ${c === lang ? 'sel' : ''}" data-act="lang" data-lang="${c}">${n}</button>`).join('')}</div></div>
@@ -911,6 +941,21 @@ const actions = {
       updateFamily({ challenges: list }).catch(err => setMsg(errText(err), true));
     }
   },
+  propose: d => {
+    const adults = adultsList();
+    openModal({ type: 'propose', kid: d.kid, draft: { to: adults[0]?.[0] || null, name: '', emoji: '🏆', days: 7 } });
+  },
+  answerProposal: d => {
+    const k = S.kids[d.kid];
+    const p = (k.proposals || []).find(x => x.id === d.id);
+    if (!p) return;
+    const jobs = [updateKid(k.id, { proposalAnswers: { ...(k.proposalAnswers || {}), [p.id]: d.v } })];
+    if (d.v === 'accepted') {
+      const ch = G.challengeFromProposal(k, S.mode === 'local' ? { ...p, to: 'p:local' } : p);
+      jobs.push(updateFamily({ challenges: [...(S.family.challenges || []), ch] }));
+    }
+    Promise.all(jobs).catch(err => setMsg(errText(err), true));
+  },
   chDelete: d => { if (confirm(t('ch.delete') + '?')) updateFamily({ challenges: S.family.challenges.filter(c => c.id !== d.id) }).catch(err => setMsg(errText(err), true)); },
   linkDevice: d => busy(async () => {
     const code = await createCode('child', d.kid);
@@ -1070,6 +1115,20 @@ const forms = {
     const v = f.querySelector('#t_val').value.trim();
     if (modal.field === 'familyName') updateFamily({ name: v }).catch(err => setMsg(errText(err), true));
     closeModal();
+  },
+  propose: f => {
+    syncModalText();
+    const d = modal.draft;
+    d.name = d.name.trim();
+    if (!d.name) return f.querySelector('#c_name').focus();
+    if (!d.to) return;
+    const k = S.kids[modal.kid];
+    const prop = { id: G.newId(), to: d.to, name: d.name, emoji: d.emoji, days: d.days, at: new Date().toISOString() };
+    updateKid(k.id, { proposals: [...(k.proposals || []), prop].slice(-20) }).catch(err => setMsg(errText(err), true));
+    closeModal();
+    sound('fanfare'); confetti(30);
+    celebrateQueue.unshift({ emoji: '⚔️', title: t('kid.proposeSent'), text: t('kid.proposeSentText') });
+    setTimeout(nextCelebration, 300);
   },
   challenge: f => {
     syncModalText();

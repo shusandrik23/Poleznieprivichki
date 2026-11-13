@@ -7,4 +7,7 @@ const FILES = ['index.html', 'privacy.html', 'firebase-config.js', 'js', 'icons'
 rmSync(OUT, { recursive: true, force: true });
 mkdirSync(OUT);
 for (const f of FILES) cpSync(f, `${OUT}/${f}`, { recursive: true });
+// Вкладка «Дети» использует расчёты и каталог детского приложения.
+mkdirSync(`${OUT}/kids/js`, { recursive: true });
+for (const f of ['kids/js/logic.js', 'kids/js/catalog.js']) cpSync(f, `${OUT}/${f}`);
 console.log(`Готово: ${FILES.join(', ')} → ${OUT}/`);

@@ -51,6 +51,9 @@ let remoteLoaded = false;
 
 function changed() { hooks.onChange && hooks.onChange(); }
 
+// Доступ к Firebase для вкладки «Дети» (js/family.js).
+export function handles() { return { fb, db }; }
+
 export async function initCloud(h) {
   hooks = h;
   if (!config) return;

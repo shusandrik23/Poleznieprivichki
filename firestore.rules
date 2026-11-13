@@ -300,7 +300,7 @@ service cloud.firestore {
         allow delete: if signedIn() && (uid == me() || kidsParent(fid));
       }
 
-      // Дети: родители меняют всё; телефон ребёнка — только свои отметки, запросы наград, вызовы и питомца
+      // Дети: родители меняют всё; телефон ребёнка — только свои отметки, запросы наград, вызовы, питомца и вызовы взрослым
       match /kids/{kid} {
         allow read: if kidsMember(fid);
         allow create, delete: if kidsParent(fid);
@@ -308,7 +308,7 @@ service cloud.firestore {
           || (kidsMember(fid)
             && get(kidsMemberDoc(fid)).data.role == 'child'
             && get(kidsMemberDoc(fid)).data.kidId == kid
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['marks', 'requests', 'chMarks', 'pet']));
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['marks', 'requests', 'chMarks', 'pet', 'proposals']));
       }
     }
   }

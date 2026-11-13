@@ -21,6 +21,7 @@ export function newId() { return Date.now().toString(36) + Math.random().toStrin
 // ---------- Привычки и отметки ----------
 
 export function scheduledOn(habit, key) {
+  if (habit.once) return key === habit.once;   // разовая задача (например, от мамы из YouBoost)
   if (habit.since && key < habit.since) return false;
   return !habit.days || habit.days.length === 0 || habit.days.includes(weekday(key));
 }
@@ -44,6 +45,7 @@ export function todayList(kid, key = today()) {
 
 // Текущая серия: подряд выполненные дни по расписанию. Сегодня, пока не отмечено, серию не обрывает.
 export function streak(kid, habit, key = today()) {
+  if (habit.once) return 0;
   let d = key, n = 0, guard = 0;
   if (scheduledOn(habit, d) && !isDone(kid, habit, d)) d = addDays(d, -1);
   while (guard++ < 2000) {
@@ -58,6 +60,7 @@ export function streak(kid, habit, key = today()) {
 }
 
 export function bestStreak(kid, habit, key = today()) {
+  if (habit.once) return 0;
   const start = habit.since || firstMarkDay(kid) || key;
   let best = 0, run = 0;
   for (let n = dayNumber(start), end = dayNumber(key); n <= end; n++) {
@@ -85,7 +88,8 @@ export function earnedFromMarks(kid) {
       if (!stars) continue;
       const ap = kid.approved?.[day]?.[hid];
       if (ap === false) continue;
-      if (ap === true || (byId[hid] && !byId[hid].approval)) sum += Number(stars) || 0;
+      // Удалённая привычка (или прошедшая разовая задача) звёзды не отнимает.
+      if (ap === true || !byId[hid] || !byId[hid].approval) sum += Number(stars) || 0;
     }
   }
   return sum;
@@ -262,4 +266,32 @@ export function makeCode(len = 6) {
   const buf = new Uint32Array(len);
   crypto.getRandomValues(buf);
   return [...buf].map(n => abc[n % abc.length]).join('');
+}
+
+// ---------- Связь с YouBoost: задачи от взрослых и вызовы от ребёнка ----------
+
+// Как ребёнок зовёт взрослого: «Мама», «Папа» или имя из аккаунта.
+export function parentName(family, uid, fallback = '') {
+  if (uid === 'local') return fallback;
+  const n = family?.parents?.[uid];
+  return n || fallback;
+}
+
+// Разовые задачи старше двух недель убираем из списка (заработанные звёзды остаются).
+export function dropOldTasks(habits, key = today()) {
+  const limit = addDays(key, -14);
+  return (habits || []).filter(h => !h.once || h.once >= limit);
+}
+
+// Вызов, который ребёнок бросил взрослому: kid.proposals (пишет ребёнок), kid.proposalAnswers (отвечает взрослый).
+export function proposalStatus(kid, p) { return kid.proposalAnswers?.[p.id] || 'pending'; }
+export function pendingProposals(kid, toPid = null) {
+  return (kid.proposals || []).filter(p => proposalStatus(kid, p) === 'pending' && (!toPid || p.to === toPid));
+}
+export function challengeFromProposal(kid, p, key = today()) {
+  return {
+    id: newId(), name: p.name, emoji: p.emoji || '🏆', days: p.days || 7, bonus: 10,
+    start: addDays(key, 1), participants: ['k:' + kid.id, p.to], marks: {}, fromKid: kid.id,
+    createdAt: new Date().toISOString(),
+  };
 }

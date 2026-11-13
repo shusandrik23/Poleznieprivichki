@@ -17,7 +17,7 @@ const useEmulator = new URLSearchParams(location.search).has('emulator');
 const config = useEmulator ? { apiKey: 'demo-key', projectId: 'demo-habits', authDomain: 'localhost' } : firebaseConfig;
 
 // Поля ребёнка, которые может менять устройство ребёнка (остальное — только родители; так же в firestore.rules).
-export const CHILD_FIELDS = ['marks', 'requests', 'chMarks', 'pet'];
+export const CHILD_FIELDS = ['marks', 'requests', 'chMarks', 'pet', 'proposals'];
 
 export const S = {
   ready: false,

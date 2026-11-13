@@ -10,6 +10,7 @@ import { tipFor } from './tips.js';
 import { habitStats, HEAT_WEEKS } from './stats.js';
 import { prefs, savePrefs, applyTheme, theme, THEMES } from './prefs.js';
 import { isNative, hasNativeGoogle, appUrl, PUBLIC_URL, nativeShare, copyText, openExternal, onBackButton, onAppUrlOpen, scheduleDailyReminder, cancelDailyReminder, notifyNow, replaceScheduled, registerPush, unregisterPush } from './native.js';
+import { initFamily, syncFamilyUser, familyView, familyBadge, familyClick, familySubmit, isFamilyForm, onHabitToggled } from './family.js';
 import { tournamentsAround, tournamentStatus, canJoin, FLAG_LIMIT, tourProgress } from './tournaments.js';
 
 const STORAGE_KEY = 'habit-trainer-v1';
@@ -125,6 +126,7 @@ function toggle(id, key) {
   } else if (h.done[key]) delete h.done[key];
   else h.done[key] = true;
   save(); render();
+  onHabitToggled(hName(h), key, !!h.done[key]);   // семейный вызов с такой же привычкой (вкладка «Дети»)
 }
 
 // ---------- Пазл и заморозки ----------
@@ -241,7 +243,7 @@ function render() {
   const incomingChallenges = social.challenges.filter(c => c.status === 'pending' && c.participants[1] === social.user?.uid).length;
   for (const b of document.querySelectorAll('.tabs button')) {
     b.classList.toggle('active', b.dataset.tab === tab);
-    const badge = b.dataset.tab === 'friends' ? social.incoming.length : b.dataset.tab === 'challenges' ? incomingChallenges : 0;
+    const badge = b.dataset.tab === 'friends' ? social.incoming.length : b.dataset.tab === 'challenges' ? incomingChallenges : b.dataset.tab === 'family' ? familyBadge() : 0;
     b.querySelector('.badge').textContent = badge || '';
   }
   for (const v of document.querySelectorAll('.view')) v.hidden = v.id !== 'view-' + tab;
@@ -249,11 +251,24 @@ function render() {
   renderAppAuth();
 
   syncScheduled();
+  syncFamilyUser();
   if (tab === 'habits') renderHabits();
+  if (tab === 'family') renderFamily();
   if (tab === 'friends') renderFriends();
   if (tab === 'challenges') renderChallenges();
   if (tab === 'settings') renderSettings();
   $('settingsBtn').classList.toggle('active', tab === 'settings');
+}
+
+// Вкладка «Дети»: связь с YouBoost Kids (js/family.js). Нужен только вход, ник не обязателен.
+function renderFamily() {
+  const el = $('view-family');
+  let gate = null;
+  if (!cloud.cloudAvailable) gate = `<div class="card center"><p>${t('gate.noCloud')}</p></div>`;
+  else if (social.error) gate = `<div class="card center"><p>${t('err.connect')}</p></div>`;
+  else if (!social.ready) gate = `<div class="card center"><p class="small">${t('gate.connecting')}</p></div>`;
+  else if (!social.user) gate = signInCard(t('fam.signinText'));
+  setHTML(el, gate || familyView());
 }
 
 // Как показывать друга: настоящее имя, если он разрешил, иначе ник.
@@ -1366,8 +1381,9 @@ function switchLang(code) {
 }
 
 document.addEventListener('click', ev => {
-  const el = ev.target.closest('[data-action], .tabs button, button[data-lang], button[data-palette]');
+  const el = ev.target.closest('[data-action], [data-fam], .tabs button, button[data-lang], button[data-palette]');
   if (!el) return;
+  if (el.dataset.fam) { if (familyClick(el)) ev.preventDefault(); return; }
   if (el.dataset.lang) { switchLang(el.dataset.lang); return; }
   if (el.dataset.palette) {
     savePrefs({ theme: el.dataset.palette }); applyTheme();
@@ -1571,6 +1587,7 @@ document.addEventListener('submit', ev => {
   }
   if (!kind) return;
   ev.preventDefault();
+  if (isFamilyForm(kind)) { familySubmit(form); return; }
   const fd = new FormData(form);
   if (kind === 'rem') {
     const h = state.habits.find(x => x.id === form.dataset.id);
@@ -1653,6 +1670,7 @@ dailyVisit();
 render();
 autoWake();
 
+initFamily({ changed: () => render(), ensureHabit: name => { if (!findHabit(name)) addHabit(name, { silent: true }); } });
 cloud.initCloud({
   onChange: () => { render(); syncPush(); },
   onIncomingChallenges,
