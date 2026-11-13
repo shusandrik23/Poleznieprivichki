@@ -96,21 +96,27 @@ function warnVoice() {
 async function loadCourse() {
   const res = await fetch('content/course.json');
   const c = await res.json();
-  c.lessonById = {}; c.wordById = {}; c.steps = [];
-  for (const b of c.books) for (const st of b.stories) {
-    if (st.soon) continue;
-    for (const l of st.lessons) {
-      c.lessonById[l.id] = l; l.story_id = st.id;
-      for (const w of l.words) c.wordById[w.id] = w;
-      c.steps.push({ kind: 'lesson', id: l.id });
+  // every book (grade) is its own path: lessons open one after another inside a book,
+  // but a 5th-grader can start straight at their grade
+  c.lessonById = {}; c.wordById = {}; c.steps = {}; c.bookOf = {};
+  for (const b of c.books) {
+    const steps = c.steps[b.id] = [];
+    for (const st of b.stories) {
+      if (st.soon) continue;
+      for (const l of st.lessons) {
+        c.lessonById[l.id] = l; l.story_id = st.id;
+        for (const w of l.words) if (!c.wordById[w.id]) c.wordById[w.id] = w;
+        steps.push({ kind: 'lesson', id: l.id }); c.bookOf['lesson:' + l.id] = b.id;
+      }
+      steps.push({ kind: 'chest', id: st.id }); c.bookOf['chest:' + st.id] = b.id;
     }
-    c.steps.push({ kind: 'chest', id: st.id });
   }
   return c;
 }
 const isDone = step => step.kind === 'lesson' ? !!S.done[step.id] : !!S.chest[step.id];
-function firstOpenIndex() { const i = C.steps.findIndex(s => !isDone(s)); return i < 0 ? C.steps.length : i; }
-function stepIndex(kind, id) { return C.steps.findIndex(s => s.kind === kind && s.id === id); }
+function firstOpenIndex(book) { const st = C.steps[book]; const i = st.findIndex(s => !isDone(s)); return i < 0 ? st.length : i; }
+function stepIndex(kind, id) { return C.steps[C.bookOf[kind + ':' + id]].findIndex(s => s.kind === kind && s.id === id); }
+function stepUnlocked(kind, id) { return stepIndex(kind, id) <= firstOpenIndex(C.bookOf[kind + ':' + id]); }
 function dueWords() {
   const now = Date.now();
   return Object.entries(S.words).filter(([id, w]) => C.wordById[id] && w.due <= now).map(([id]) => id);
@@ -123,7 +129,7 @@ function renderHome() {
   R = null;
   const st = streakNow(), litToday = S.lastDay === dayKey();
   const due = dueWords();
-  const open = firstOpenIndex();
+  const started = Object.keys(S.done).length > 0;
   let k = 0;
 
   let html = `<header class="topbar">
@@ -131,19 +137,21 @@ function renderHome() {
     <span class="chip ${litToday ? '' : 'off'}" title="רֶצֶף יָמִים">🔥 ${st}</span>
     <span class="chip" title="מְגִלּוֹת XP">📜 ${S.xp}</span>
     <button class="iconbtn" data-act="dict" aria-label="הַמִּלּוֹן שֶׁלִּי">📖</button>
-  </header>`;
+  </header>
+  <nav class="grades" aria-label="כִּתּוֹת">${C.books.map(b => `<button class="grade" data-act="jump" data-book="${b.id}">${esc(b.subtitle)}</button>`).join('')}</nav>`;
 
   if (due.length) {
     html += `<div class="review-card">${mascot('happy')}
       <p><b>הַמִּלּוֹן שֶׁלִּי</b><br>${due.length === 1 ? 'מִלָּה אַחַת מְחַכָּה' : `${due.length} מִלִּים מְחַכּוֹת`} לַחֲזָרָה קְצָרָה.</p>
       <button class="btn gold" style="width:auto" data-act="review">חֲזָרָה</button></div>`;
-  } else if (open === 0) {
+  } else if (!started) {
     html += `<div class="bubble-row" style="margin-top:6px">${mascot('happy')}
       <div class="bubble">שָׁלוֹם! אֲנִי גִּילִי, הַמְּגִלָּה. בּוֹאוּ נִצָּא לְמַסָּע בַּתַּנַ״ךְ – 3 דַּקּוֹת בְּכָל יוֹם!</div></div>`;
   }
 
   for (const b of C.books) {
-    html += `<section><div class="book-banner"><small>${esc(b.subtitle)}</small><h2>${esc(b.title)}</h2></div>`;
+    const steps = C.steps[b.id], open = firstOpenIndex(b.id);
+    html += `<section class="book" id="book-${b.id}"><div class="book-banner"><small>${esc(b.subtitle)} · ${Math.min(open, steps.length)}/${steps.length}</small><h2>${esc(b.title)}</h2></div>`;
     for (const st of b.stories) {
       html += `<div class="story-title">${esc(st.title)}</div>`;
       if (st.soon) { html += `<div class="soon">🔒 בְּקָרוֹב</div>`; continue; }
@@ -166,13 +174,15 @@ function renderHome() {
   }
   html += `<div style="height:40px"></div>`;
   app.innerHTML = html;
-  const cur = app.querySelector('.node.open');
-  if (cur && open > 0) cur.scrollIntoView({ block: 'center' });
+  const lastBook = S.lastBook && C.steps[S.lastBook] ? S.lastBook : null;
+  const cur = lastBook && app.querySelector(`#book-${lastBook} .node.open`);
+  if (cur) cur.scrollIntoView({ block: 'center' });
 }
 
 /* ---------------- sessions ---------------- */
 function startLesson(id) {
   const les = C.lessonById[id];
+  S.lastBook = C.bookOf['lesson:' + id]; save();
   const tasks = les.tasks.map(t => prepTask(t, les));
   R = { kind: 'lesson', les, stage: 0, queue: tasks, total: tasks.length, solved: 0, mistakes: 0,
         flipped: new Set(), ui: {} };
@@ -181,6 +191,7 @@ function startLesson(id) {
 
 function startChest(storyId) {
   const story = C.books.flatMap(b => b.stories).find(s => s.id === storyId);
+  S.lastBook = C.bookOf['chest:' + storyId]; save();
   const lessons = story.lessons;
   const pool = shuffle(lessons.flatMap(l => l.tasks.filter(t => t.type !== 'match').map(t => prepTask(t, l)))).slice(0, 6);
   const words = shuffle(lessons.flatMap(l => l.words)).slice(0, 4);
@@ -500,12 +511,12 @@ app.addEventListener('click', e => {
   const a = el.dataset.act;
   switch (a) {
     case 'go': {
-      const idx = stepIndex(el.dataset.kind, el.dataset.id);
-      if (idx > firstOpenIndex()) { toast('🔒 קֹדֶם סַיְּמוּ אֶת הַשִּׁעוּרִים הַקּוֹדְמִים'); return; }
+      if (!stepUnlocked(el.dataset.kind, el.dataset.id)) { toast('🔒 קֹדֶם סַיְּמוּ אֶת הַשִּׁעוּרִים הַקּוֹדְמִים'); return; }
       el.dataset.kind === 'lesson' ? startLesson(el.dataset.id) : startChest(el.dataset.id);
       break;
     }
-    case 'home': renderHome(); window.scrollTo(0, 0); break;
+    case 'home': window.scrollTo(0, 0); renderHome(); break;
+    case 'jump': document.getElementById('book-' + el.dataset.book)?.scrollIntoView({ block: 'start', behavior: 'smooth' }); break;
     case 'quit': if ('speechSynthesis' in window) speechSynthesis.cancel(); renderHome(); break;
     case 'dict': renderDict(); window.scrollTo(0, 0); break;
     case 'review': startReview(); window.scrollTo(0, 0); break;

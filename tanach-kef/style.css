@@ -108,6 +108,13 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 }
 
 /* ---------- map ---------- */
+.grades { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 4px; scrollbar-width: none; }
+.grades::-webkit-scrollbar { display: none; }
+.grade {
+  flex: none; border: 2px solid var(--line); background: var(--surface); color: var(--primary);
+  border-radius: 999px; padding: 4px 12px; font-size: 15px; font-weight: 700;
+}
+.book { scroll-margin-top: calc(70px + env(safe-area-inset-top, 0px)); }
 .review-card {
   display: flex; align-items: center; gap: 12px;
   background: var(--surface); border: 2px solid var(--gold); border-radius: 18px;
