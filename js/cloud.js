@@ -3,7 +3,7 @@ import { firebaseConfig, appleSignInEnabled } from '../firebase-config.js';
 import { streaks, challengeProgress, todayNumber, dateKey } from './core.js';
 import { keyOf, keyOfName, normKey } from './catalog.js';
 import * as I from './i18n.js';
-import { setServerPlus } from './plans.js';
+import { setServerPlus, PROMO } from './plans.js';
 import { tournamentById, tourProgress, FLAG_LIMIT } from './tournaments.js';
 import { isNative, hasNativeGoogle, nativeGoogleIdToken, nativeSignOut, appUrl, bridgeCheck, pluginHasMethod } from './native.js';
 
@@ -34,6 +34,9 @@ export const social = {
   challenges: [],
   joined: [],          // id турниров, в которых участвую
   referrals: 0,        // сколько друзей зарегистрировалось по моим ссылкам
+  qualified: 0,        // из них засчитаны в акции (отмечали привычки 3 дня)
+  promo: null,         // документ акции promo/invite2 (сколько мест занято)
+  promoWon: null,      // я получил награду акции
   error: null,
 };
 
@@ -153,7 +156,7 @@ async function onUser(user) {
   Object.assign(social, {
     user: user ? { uid: user.uid, email: user.email, displayName: user.displayName || '' } : null,
     profile: user ? undefined : null, settings: { ...DEFAULT_SETTINGS },
-    incoming: [], outgoing: [], friends: [], friendStats: {}, challenges: [], joined: [], referrals: 0,
+    incoming: [], outgoing: [], friends: [], friendStats: {}, challenges: [], joined: [], referrals: 0, qualified: 0, promo: null, promoWon: null,
   });
   setServerPlus(0);
   changed();
@@ -169,8 +172,11 @@ async function onUser(user) {
 
   unsubs.push(fb.onSnapshot(fb.query(fb.collection(db, 'referrals'), fb.where('by', '==', uid)), snap => {
     social.referrals = snap.size;
+    social.qualified = snap.docs.filter(d => d.data().qualified).length;
     changed();
   }, () => {}));
+  unsubs.push(fb.onSnapshot(fb.doc(db, 'promo', PROMO.id), snap => { social.promo = snap.exists() ? snap.data() : null; changed(); }, () => {}));
+  unsubs.push(fb.onSnapshot(fb.doc(db, 'promoWinners', uid), snap => { social.promoWon = snap.exists() ? snap.data() : null; changed(); }, () => {}));
   unsubs.push(fb.onSnapshot(fb.doc(db, 'profiles', uid), snap => {
     const had = social.profile;
     social.profile = snap.exists() ? snap.data() : null;
@@ -180,7 +186,12 @@ async function onUser(user) {
 
   // Личные привычки: при входе объединяем с тем, что уже есть на устройстве.
   const userRef = fb.doc(db, 'users', uid);
-  const first = await fb.getDoc(userRef);
+  let first;
+  try { first = await fb.getDoc(userRef); } catch (err) {
+    if (auth.currentUser?.uid !== uid) return;   // пока грузились, вошли в другой аккаунт
+    throw err;
+  }
+  if (auth.currentUser?.uid !== uid) return;
   const local = hooks.getState();
   const merged = first.exists() ? mergeStates(first.data(), local) : local;
   social.settings = { ...DEFAULT_SETTINGS, realName: social.user.displayName, ...(first.data()?.settings || {}) };

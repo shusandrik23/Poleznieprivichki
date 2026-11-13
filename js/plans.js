@@ -11,6 +11,10 @@ export const PLANS = {
   trialDays: 7,
 };
 
+// Акция «Пригласите 2 друзей — 3 месяца Plus». Награду выдаёт сервер (functions/index.js, те же числа).
+// Выключить показ — enabled: false; закончить досрочно — поле active: false в документе promo/invite2.
+export const PROMO = { enabled: true, id: 'invite2', limit: 10, need: 2, activeDays: 3, months: 3 };
+
 // Что входит в Plus (порядок = порядок в карточке настроек)
 export const PLUS_FEATURES = ['goals', 'stats', 'tips', 'reminders', 'risk'];
 

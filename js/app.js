@@ -5,7 +5,7 @@ import { t, pw, num, lang, setLang, locale, LANGS } from './i18n.js';
 import { HABITS, CATEGORIES, catalogName, keyOf, keyOfName, normKey, displayName, nameOfKey } from './catalog.js';
 import { factFor } from './facts.js';
 import { quoteFor } from './quotes.js';
-import { PLANS, goalLimit, hasPlus, plusUntil, startTrial, trialUsed, PLUS_FEATURES } from './plans.js';
+import { PLANS, PROMO, goalLimit, hasPlus, plusUntil, startTrial, trialUsed, PLUS_FEATURES } from './plans.js';
 import { tipFor } from './tips.js';
 import { habitStats, HEAT_WEEKS } from './stats.js';
 import { prefs, savePrefs, applyTheme, theme, THEMES } from './prefs.js';
@@ -487,6 +487,9 @@ function renderHabits() {
   // Анонс турнира, к которому можно присоединиться
   const today = todayNumber();
   const tj = cloud.cloudAvailable && tournamentsAround(today).find(tr => canJoin(tr, today) && !social.joined.includes(tr.id));
+  const promo = promoHtml(true);
+  $('promoBanner').hidden = !promo;
+  if (promo) setHTML($('promoBanner'), promo);
   $('tourBanner').hidden = !tj;
   if (tj) {
     const st = tournamentStatus(tj, today);
@@ -552,11 +555,36 @@ function flashHtml(key) {
   return f ? `<p class="flash${f.error ? ' error' : ''}">${e(f.text)}</p>` : '';
 }
 
+// Акция «Пригласите 2 друзей — 3 месяца Plus»
+function promoInfo() {
+  if (!PROMO.enabled || !cloud.cloudAvailable) return null;
+  const p = social.promo || {};
+  const limit = p.limit || PROMO.limit;
+  const left = Math.max(0, limit - (p.count || 0));
+  if (social.promoWon) return { won: true };
+  if (p.active === false || !left) return null;
+  return { left, limit, invited: social.referrals, qualified: Math.min(social.qualified, PROMO.need) };
+}
+
+function promoHtml(withButton) {
+  const pi = promoInfo();
+  if (!pi) return '';
+  if (pi.won) return withButton ? '' : `<div class="promo won">${t('promo.won', { months: PROMO.months })}</div>`;
+  const signedIn = !!social.profile;
+  return `<div class="promo">
+    <b>${t('promo.title', { need: PROMO.need, months: PROMO.months })}</b>
+    <p>${t('promo.rules', { days: PROMO.activeDays, limit: pi.limit })}</p>
+    <p class="promo-left">${t('promo.left', { left: pi.left, limit: pi.limit })}${signedIn ? ' · ' + t('promo.mine', { q: pi.qualified, need: PROMO.need, invited: pi.invited }) : ''}</p>
+    ${withButton ? `<button class="btn plus-btn small-btn" data-action="limit-invite">${t('promo.inviteBtn')}</button>` : ''}
+  </div>`;
+}
+
 function inviteCard() {
   const n = social.referrals;
   const lim = goalLimit(n);
   return `<div class="card invite-card">
     <h2>${t('invite.title')}</h2>
+    ${promoHtml(false)}
     <p class="small">${t('invite.note')}</p>
     ${PLANS.limitsEnabled ? `<p class="bonus">${t('invite.bonus', { bonus: PLANS.bonusPerReferral })}${n ? t('invite.bonusCount', { n, lim, goals: pw(lim, 'goal') }) : ''}</p>` : ''}
     <div class="row">

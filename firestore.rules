@@ -74,6 +74,16 @@ service cloud.firestore {
       allow write: if false;
     }
 
+    // Акции (сколько мест осталось) — читают все вошедшие; победители — только сами о себе. Пишет только сервер.
+    match /promo/{id} {
+      allow read: if signedIn();
+      allow write: if false;
+    }
+    match /promoWinners/{uid} {
+      allow read: if signedIn() && uid == me();
+      allow write: if false;
+    }
+
     match /users/{uid} {
       allow read, write: if signedIn() && uid == me();
 

@@ -331,6 +331,13 @@
   .wake-hint { grid-column: 1 / -1; margin: 4px 0 0; font-size: 13px; color: var(--muted); }
   .wake-hint .ok { color: var(--accent); font-weight: 600; }
   .wake-hint .err { color: var(--danger); }
+  .promo { background: linear-gradient(135deg, #fff4dc, #ffe6cc); color: #4a3510; border-radius: 12px; padding: 12px 14px; margin: 6px 0 10px; }
+  .promo p { margin: 6px 0 0; font-size: 14px; }
+  .promo .promo-left { font-weight: 600; }
+  .promo .btn { margin-top: 10px; }
+  .promo.won { font-weight: 600; }
+  .promo-card { padding: 0; background: transparent; border: 0; box-shadow: none; }
+  .promo-card .promo { margin: 0; }
 </style>
 </head>
 <body>
@@ -351,6 +358,7 @@
   </nav>
 
   <section class="view" id="view-habits">
+    <div class="card promo-card" id="promoBanner" hidden></div>
     <div class="card tour-banner" id="tourBanner" hidden></div>
     <div class="card puzzle" id="puzzle"></div>
     <div class="progress" id="progress">
