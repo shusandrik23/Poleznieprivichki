@@ -1,0 +1,8 @@
+{
+  "appId": "com.tanachkef.app",
+  "appName": "מסע בתנ״ך",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#e8f3f2"
+  }
+}

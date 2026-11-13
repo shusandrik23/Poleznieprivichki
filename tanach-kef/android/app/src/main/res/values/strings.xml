@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">מסע בתנ״ך</string>
+    <string name="title_activity_main">מסע בתנ״ך</string>
+    <string name="package_name">com.tanachkef.app</string>
+    <string name="custom_url_scheme">com.tanachkef.app</string>
+</resources>

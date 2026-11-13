@@ -1,0 +1,26 @@
+{
+  "name": "tanach-kef",
+  "version": "0.1.0",
+  "private": true,
+  "description": "מַסָּע בַּתַּנַ״ךְ — тренажёр по Танаху (веб + Android через Capacitor)",
+  "type": "module",
+  "scripts": {
+    "fonts": "node tools/copy-fonts.mjs",
+    "build": "node tools/build-web.mjs",
+    "sync": "npm run build && npx cap sync android",
+    "open:android": "npx cap open android",
+    "apk": "npm run sync && cd android && ./gradlew assembleDebug"
+  },
+  "dependencies": {
+    "@capacitor-community/text-to-speech": "8.0.2",
+    "@capacitor/android": "8.5.3",
+    "@capacitor/app": "8.1.2",
+    "@capacitor/core": "8.5.3"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "8.5.3",
+    "@fontsource/frank-ruhl-libre": "5.3.0",
+    "@fontsource/rubik": "5.3.0"
+  },
+  "engines": { "node": ">=22" }
+}

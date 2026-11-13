@@ -69,6 +69,26 @@ function mascot(mood = 'happy') {
     ${mouth}</svg>`;
 }
 
+/* ---------------- native (Capacitor) ---------------- */
+// In the Android app the Capacitor bridge is present; in a browser all of this is skipped.
+// Note: a plugin object answers to any property, including `then`, so never `await` the plugin itself.
+const CAP = window.capacitorExports;
+const isNative = !!CAP?.Capacitor?.isNativePlatform?.();
+const pluginCache = {};
+const plugin = name => (pluginCache[name] ||= CAP.registerPlugin(name));
+let onHome = false;
+
+if (isNative) {
+  // Android back button: from any screen go back to the map; on the map, leave the app.
+  plugin('App').addListener('backButton', () => {
+    if (onHome) plugin('App').minimizeApp();
+    else { stopSpeech(); renderHome(); }
+  });
+  // Android WebView has no speechSynthesis, so the TextToSpeech plugin speaks instead.
+  plugin('TextToSpeech').isLanguageSupported({ lang: 'he-IL' })
+    .then(r => { if (!r?.supported) warnVoice(); }).catch(() => {});
+}
+
 /* ---------------- audio ---------------- */
 let heVoice = null, voiceWarned = false;
 function pickVoice() {
@@ -80,12 +100,21 @@ if ('speechSynthesis' in window) { pickVoice(); speechSynthesis.onvoiceschanged 
 function speak(text, audioUrl) {
   if (!S.sound) return;
   if (audioUrl) { new Audio(audioUrl).play().catch(() => speak(text)); return; } // pre-generated file wins
+  if (isNative) {
+    const tts = plugin('TextToSpeech');
+    tts.stop().catch(() => {}).then(() => tts.speak({ text: tanachChars(text), lang: 'he-IL', rate: 0.85 })).catch(warnVoice);
+    return;
+  }
   if (!('speechSynthesis' in window)) { warnVoice(); return; }
   speechSynthesis.cancel();
   const u = new SpeechSynthesisUtterance(tanachChars(text));
   u.lang = 'he-IL'; u.rate = 0.82;
   if (heVoice) u.voice = heVoice; else warnVoice();
   speechSynthesis.speak(u);
+}
+function stopSpeech() {
+  if (isNative) plugin('TextToSpeech').stop().catch(() => {});
+  else if ('speechSynthesis' in window) speechSynthesis.cancel();
 }
 function warnVoice() {
   if (voiceWarned) return; voiceWarned = true;
@@ -126,7 +155,7 @@ function dueWords() {
 const OFFS = [0, 46, 70, 46, 0, -46, -70, -46];
 
 function renderHome() {
-  R = null;
+  R = null; onHome = true;
   const st = streakNow(), litToday = S.lastDay === dayKey();
   const due = dueWords();
   const started = Object.keys(S.done).length > 0;
@@ -252,6 +281,7 @@ function progressPct() {
 }
 
 function shell(body, bottom) {
+  onHome = false;
   app.innerHTML = `<div class="lesson">
     <div class="lesson-top"><button class="close" data-act="quit" aria-label="יְצִיאָה">✕</button>
       <div class="progress"><i style="width:${progressPct()}%"></i></div></div>
@@ -470,6 +500,7 @@ function finish() {
       w.due = Date.now() + BOX_DAYS[w.box] * DAY;
     }
   }
+  onHome = false;
   S.xp += xp;
   const lit = markActive();
   save();
@@ -486,6 +517,7 @@ function finish() {
 
 /* ---------------- dictionary ---------------- */
 function renderDict() {
+  onHome = false;
   const ids = Object.keys(S.words).filter(id => C.wordById[id]);
   const due = new Set(dueWords());
   app.innerHTML = `<header class="topbar"><button class="close" data-act="home" aria-label="חֲזָרָה">→</button>
@@ -517,7 +549,7 @@ app.addEventListener('click', e => {
     }
     case 'home': window.scrollTo(0, 0); renderHome(); break;
     case 'jump': document.getElementById('book-' + el.dataset.book)?.scrollIntoView({ block: 'start', behavior: 'smooth' }); break;
-    case 'quit': if ('speechSynthesis' in window) speechSynthesis.cancel(); renderHome(); break;
+    case 'quit': stopSpeech(); renderHome(); break;
     case 'dict': renderDict(); window.scrollTo(0, 0); break;
     case 'review': startReview(); window.scrollTo(0, 0); break;
     case 'sound': S.sound = !S.sound; save(); renderDict(); break;

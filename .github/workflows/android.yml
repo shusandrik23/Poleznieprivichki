@@ -6,6 +6,8 @@ on:
   push:
     paths-ignore:
       - 'README.md'
+      - 'tanach-kef/**'
+      - '.github/workflows/tanach-kef-android.yml'
   workflow_dispatch:
 
 jobs:

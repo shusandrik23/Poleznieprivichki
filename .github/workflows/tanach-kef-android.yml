@@ -1,0 +1,47 @@
+# Сборка Android-приложения «מסע בתנ״ך» (отладочный APK) при изменениях в папке tanach-kef.
+# Готовый файл: вкладка Actions → последний запуск «Tanach Kef APK» → Artifacts → tanach-kef-debug.
+name: Tanach Kef APK
+
+on:
+  push:
+    paths:
+      - 'tanach-kef/**'
+      - '.github/workflows/tanach-kef-android.yml'
+      - '!tanach-kef/README.md'
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: tanach-kef
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: tanach-kef/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Сборка веб-части и перенос в Android
+        run: npm run sync
+
+      - name: Сборка APK
+        working-directory: tanach-kef/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: tanach-kef-debug
+          path: tanach-kef/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
