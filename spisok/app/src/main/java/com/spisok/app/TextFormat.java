@@ -1,5 +1,10 @@
 package com.spisok.app;
 
+import java.nio.ByteBuffer;
+import java.nio.charset.CharacterCodingException;
+import java.nio.charset.Charset;
+import java.nio.charset.CodingErrorAction;
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -141,5 +146,21 @@ public final class TextFormat {
         if (text == null) return "";
         Matcher m = URL.matcher(text);
         return m.find() ? m.group(1) : "";
+    }
+
+    /** UTF-8, а если файл сохранён старым Блокнотом — Windows-1251. */
+    public static String decode(byte[] bytes) {
+        String s;
+        try {
+            s = StandardCharsets.UTF_8.newDecoder()
+                    .onMalformedInput(CodingErrorAction.REPORT)
+                    .onUnmappableCharacter(CodingErrorAction.REPORT)
+                    .decode(ByteBuffer.wrap(bytes))
+                    .toString();
+        } catch (CharacterCodingException ex) {
+            s = new String(bytes, Charset.forName("windows-1251"));
+        }
+        if (s.startsWith("\uFEFF")) s = s.substring(1);
+        return s;
     }
 }

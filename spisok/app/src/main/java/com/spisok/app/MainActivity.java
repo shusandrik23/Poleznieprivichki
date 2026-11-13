@@ -35,12 +35,11 @@ import com.google.android.material.textfield.TextInputLayout;
 import java.io.ByteArrayOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
-import java.nio.ByteBuffer;
-import java.nio.charset.CharacterCodingException;
-import java.nio.charset.Charset;
-import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 public class MainActivity extends AppCompatActivity implements EntryAdapter.Listener {
 
@@ -55,6 +54,10 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
     private TextView empty;
     private FloatingActionButton fab;
     private int current = 0;
+
+    private TelegramBot bot;
+    private final ExecutorService net = Executors.newSingleThreadExecutor();
+    private boolean syncing;
 
     private ActivityResultLauncher<String[]> openFile;
     private ActivityResultLauncher<String> saveFile;
@@ -78,6 +81,7 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
         setSupportActionBar(toolbar);
 
         store = new Store(this);
+        bot = new TelegramBot(this);
 
         list = findViewById(R.id.list);
         empty = findViewById(R.id.empty);
@@ -110,6 +114,18 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
 
         refresh();
         if (savedInstanceState == null) handleIntent(getIntent());
+    }
+
+    @Override
+    protected void onResume() {
+        super.onResume();
+        if (bot.enabled()) syncBot(false);
+    }
+
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        net.shutdown();
     }
 
     @Override
@@ -251,6 +267,12 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
     }
 
     @Override
+    public boolean onPrepareOptionsMenu(Menu menu) {
+        menu.findItem(R.id.action_bot_sync).setVisible(bot.enabled());
+        return super.onPrepareOptionsMenu(menu);
+    }
+
+    @Override
     public boolean onOptionsItemSelected(MenuItem item) {
         int id = item.getItemId();
         if (id == R.id.action_import) {
@@ -258,6 +280,12 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
             return true;
         } else if (id == R.id.action_export) {
             saveFile.launch("мой-список.txt");
+            return true;
+        } else if (id == R.id.action_bot) {
+            showBotDialog();
+            return true;
+        } else if (id == R.id.action_bot_sync) {
+            syncBot(true);
             return true;
         } else if (id == R.id.action_clear_done) {
             clearDone();
@@ -295,7 +323,7 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
         String text;
         try (InputStream in = getContentResolver().openInputStream(uri)) {
             if (in == null) throw new IllegalStateException("no stream");
-            text = decode(readAll(in));
+            text = TextFormat.decode(readAll(in));
         } catch (Exception ex) {
             Toast.makeText(this, R.string.import_error, Toast.LENGTH_LONG).show();
             return;
@@ -351,20 +379,161 @@ public class MainActivity extends AppCompatActivity implements EntryAdapter.List
         return buf.toByteArray();
     }
 
-    /** UTF-8, а если файл сохранён старым Блокнотом — Windows-1251. */
-    private static String decode(byte[] bytes) {
-        String s;
-        try {
-            s = StandardCharsets.UTF_8.newDecoder()
-                    .onMalformedInput(CodingErrorAction.REPORT)
-                    .onUnmappableCharacter(CodingErrorAction.REPORT)
-                    .decode(ByteBuffer.wrap(bytes))
-                    .toString();
-        } catch (CharacterCodingException ex) {
-            s = new String(bytes, Charset.forName("windows-1251"));
+    // ---------- Telegram-бот ----------
+
+    private String[] categoryNames() {
+        String[] names = new String[TAB_NAMES.length];
+        for (int i = 0; i < names.length; i++) names[i] = getString(TAB_NAMES[i]);
+        return names;
+    }
+
+    private void syncBot(boolean manual) {
+        if (syncing) return;
+        syncing = true;
+        String[] names = categoryNames();
+        net.execute(() -> {
+            try {
+                TelegramBot.Fetch f = bot.fetch(names);
+                runOnUiThread(() -> applyBot(f, manual));
+            } catch (Exception ex) {
+                runOnUiThread(() -> {
+                    syncing = false;
+                    if (manual) {
+                        Toast.makeText(this, getString(R.string.bot_error, ex.getMessage()),
+                                Toast.LENGTH_LONG).show();
+                    }
+                });
+            }
+        });
+    }
+
+    private void applyBot(TelegramBot.Fetch f, boolean manual) {
+        syncing = false;
+        String[] names = categoryNames();
+        List<long[]> chats = new ArrayList<>();
+        List<String> replies = new ArrayList<>();
+        int total = 0, lastCat = -1;
+        boolean sameCat = true;
+
+        for (TelegramBot.Incoming in : f.items) {
+            StringBuilder r = new StringBuilder();
+            if (in.justBound) r.append(getString(R.string.bot_bound_reply)).append("\n\n");
+            if (in.help) r.append(getString(R.string.bot_help_reply)).append("\n\n");
+            List<String> added = new ArrayList<>();
+            List<String> dupes = new ArrayList<>();
+            for (Entry e : in.entries) {
+                if (store.exists(e.category, e.title)) {
+                    dupes.add(e.title);
+                    continue;
+                }
+                store.add(e);
+                added.add("✅ " + names[e.category] + ": " + e.title);
+                if (lastCat >= 0 && lastCat != e.category) sameCat = false;
+                lastCat = e.category;
+            }
+            total += added.size();
+            for (int i = 0; i < added.size() && i < 15; i++) r.append(added.get(i)).append('\n');
+            if (added.size() > 15) r.append("…и ещё ").append(added.size() - 15).append('\n');
+            if (!dupes.isEmpty()) r.append("Уже было в списке: ").append(String.join(", ", dupes)).append('\n');
+            if (in.error != null) r.append("⚠️ ").append(in.error).append('\n');
+            if (r.length() > 0) {
+                chats.add(new long[]{in.chatId});
+                replies.add(r.toString().trim());
+            }
         }
-        if (s.startsWith("﻿")) s = s.substring(1);
-        return s;
+        bot.saveOffset(f.nextOffset);
+
+        if (total > 0) {
+            selectTab(sameCat ? lastCat : current);
+            Snackbar.make(list, getString(R.string.bot_added, total), Snackbar.LENGTH_LONG)
+                    .setAnchorView(fab).show();
+        } else {
+            refresh();
+            if (manual) Toast.makeText(this, R.string.bot_nothing, Toast.LENGTH_SHORT).show();
+        }
+
+        long offset = f.nextOffset;
+        net.execute(() -> {
+            for (int i = 0; i < replies.size(); i++) bot.reply(chats.get(i)[0], replies.get(i));
+            if (offset > 0) bot.confirm(offset);
+        });
+    }
+
+    private void showBotDialog() {
+        View v = getLayoutInflater().inflate(R.layout.dialog_bot, null);
+        EditText inToken = v.findViewById(R.id.input_token);
+        TextView status = v.findViewById(R.id.bot_status);
+        TextInputLayout tokenLayout = v.findViewById(R.id.token_layout);
+        inToken.setText(bot.token());
+
+        if (!bot.enabled()) {
+            status.setText(R.string.bot_status_off);
+        } else if (bot.owner() == 0) {
+            status.setText(getString(R.string.bot_status_wait, bot.botName()));
+        } else {
+            status.setText(getString(R.string.bot_status_on, bot.botName(), bot.ownerName()));
+        }
+
+        MaterialAlertDialogBuilder b = new MaterialAlertDialogBuilder(this)
+                .setTitle(R.string.bot_title)
+                .setView(v)
+                .setPositiveButton(R.string.save, null)
+                .setNegativeButton(R.string.cancel, null);
+        if (bot.enabled()) {
+            b.setNeutralButton(R.string.bot_open_chat, (d, w) -> {
+                String name = bot.botName().replace("@", "");
+                try {
+                    startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse("https://t.me/" + name)));
+                } catch (ActivityNotFoundException ex) {
+                    Toast.makeText(this, R.string.no_browser, Toast.LENGTH_SHORT).show();
+                }
+            });
+        }
+        AlertDialog dialog = b.create();
+        dialog.setOnShowListener(x -> dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(btn -> {
+            String token = inToken.getText().toString().trim().replaceAll("\\s", "");
+            if (token.isEmpty()) {
+                bot.disconnect();
+                invalidateOptionsMenu();
+                Toast.makeText(this, R.string.bot_disconnected, Toast.LENGTH_SHORT).show();
+                dialog.dismiss();
+                return;
+            }
+            if (token.equals(bot.token())) {
+                dialog.dismiss();
+                return;
+            }
+            tokenLayout.setError(null);
+            btn.setEnabled(false);
+            net.execute(() -> {
+                try {
+                    String name = TelegramBot.getMe(token);
+                    runOnUiThread(() -> {
+                        bot.connect(token, name);
+                        invalidateOptionsMenu();
+                        dialog.dismiss();
+                        new MaterialAlertDialogBuilder(this)
+                                .setTitle(R.string.bot_title)
+                                .setMessage(getString(R.string.bot_connected, name))
+                                .setPositiveButton(R.string.bot_open_chat, (d, w) -> {
+                                    try {
+                                        startActivity(new Intent(Intent.ACTION_VIEW,
+                                                Uri.parse("https://t.me/" + name.replace("@", ""))));
+                                    } catch (ActivityNotFoundException ignored) {
+                                    }
+                                })
+                                .setNegativeButton(R.string.ok, null)
+                                .show();
+                    });
+                } catch (Exception ex) {
+                    runOnUiThread(() -> {
+                        btn.setEnabled(true);
+                        tokenLayout.setError(getString(R.string.bot_error, ex.getMessage()));
+                    });
+                }
+            });
+        }));
+        dialog.show();
     }
 
     // ---------- «Поделиться» и «Открыть с помощью» ----------
