@@ -2,7 +2,7 @@ import { dateKey, dayKeyFromNumber, streaks, canFreezeYesterday, liveStreak, cha
 import * as cloud from './cloud.js';
 import { social } from './cloud.js';
 import { t, pw, num, lang, setLang, locale, LANGS } from './i18n.js';
-import { CATEGORIES, catalogName, keyOf, keyOfName, normKey, displayName, nameOfKey } from './catalog.js';
+import { HABITS, CATEGORIES, catalogName, keyOf, keyOfName, normKey, displayName, nameOfKey } from './catalog.js';
 import { factFor } from './facts.js';
 import { quoteFor } from './quotes.js';
 import { PLANS, goalLimit, hasPlus, plusUntil, startTrial, trialUsed, PLUS_FEATURES } from './plans.js';
@@ -89,9 +89,35 @@ function addHabit(name, { silent } = {}) {
   return true;
 }
 
+// «Встать до 8:00» и подобные: засчитывается, только если отметить (или открыть приложение) до срока.
+let wakeMsg = null;   // { id, text } — сообщение в карточке такой привычки
+function deadlineOf(h) { const k = keyOf(h); return k.startsWith('c:') ? HABITS[k.slice(2)]?.by || null : null; }
+const beforeDeadline = by => { const n = new Date(); return n.getHours() * 60 + n.getMinutes() < by.split(':').map(Number).reduce((hh, mm) => hh * 60 + mm); };
+
+function autoWake() {
+  const key = dateKey(new Date());
+  let changed = false;
+  for (const h of state.habits) {
+    const by = deadlineOf(h);
+    if (by && !h.done[key] && beforeDeadline(by)) {
+      h.done[key] = true; changed = true;
+      wakeMsg = { id: h.id, text: t('wake.auto', { name: hName(h) }) };
+    }
+  }
+  if (changed) { save(); render(); }
+}
+
 function toggle(id, key) {
   const h = state.habits.find(x => x.id === id);
   if (!h) return;
+  const by = deadlineOf(h);
+  if (by && !h.done[key] && !h.frozen?.[key]) {
+    const today = key === dateKey(new Date());
+    if (!today || !beforeDeadline(by)) {
+      wakeMsg = { id, text: t(today ? 'wake.late' : 'wake.pastDay', { time: by }), error: true };
+      render(); return;
+    }
+  }
   if (h.frozen?.[key]) {           // замороженный день отмечаем выполненным — заморозка возвращается
     delete h.frozen[key];
     rewards().freezes++;
@@ -374,6 +400,7 @@ function renderHabits() {
         ${current > 0 ? `<button class="icon-btn${sharing === h.id ? ' active' : ''}" data-action="share-edit" data-id="${h.id}" title="${t('habit.share')}" aria-label="${t('habit.share')}">${SHARE_SVG}</button>` : ''}
         <button class="icon-btn delete" data-action="remove" data-id="${h.id}" title="${t('habit.delete')}" aria-label="${t('habit.delete')}">×</button>
       </div>
+      ${deadlineOf(h) ? `<p class="wake-hint">${wakeMsg?.id === h.id ? `<span class="${wakeMsg.error ? 'err' : 'ok'}">${e(wakeMsg.text)}</span>` : t('wake.hint', { time: deadlineOf(h) })}</p>` : ''}
       <div class="stats"><span>${t('stats.current', { n: current, days: pw(current, 'day') })}</span><span>${t('stats.best', { n: best, days: pw(best, 'day') })}</span></div>`;
 
     // Заморозка: вчера пропущено — можно спасти серию цели
@@ -1562,7 +1589,7 @@ document.addEventListener('submit', ev => {
 // Перерисовываем при смене дня, если вкладка открыта через полночь.
 let lastKey = dateKey(new Date());
 setInterval(() => { const k = dateKey(new Date()); if (k !== lastKey) { lastKey = k; factOffset = 0; dailyVisit(); render(); } }, 60000);
-document.addEventListener('visibilitychange', () => { if (!document.hidden) { dailyVisit(); render(); } });
+document.addEventListener('visibilitychange', () => { if (!document.hidden) { dailyVisit(); autoWake(); render(); } });
 
 // Цитата дня
 function fillQuote() {
@@ -1596,6 +1623,7 @@ onBackButton(() => {
 $('catalog').open = !state.habits.length;
 dailyVisit();
 render();
+autoWake();
 
 cloud.initCloud({
   onChange: () => { render(); syncPush(); },

@@ -59,6 +59,7 @@ const TIPS = {
     { ru: 'Сделайте правило: «до 3 этажа — только пешком».', en: 'Make a rule: "up to the 3rd floor — always on foot".' },
   ],
   read: [
+    { ru: 'Чтение — поддержка для психики: исследования показывают, что даже несколько минут с книгой снижают стресс, а библиотерапия помогает при лёгкой депрессии. Это не замена лечению, но хорошая опора.', en: 'Reading supports mental health: studies show that even a few minutes with a book lowers stress, and bibliotherapy helps with mild depression. It\'s not a substitute for treatment, but a good support.' },
     { ru: 'Держите книгу там, где обычно берёте телефон: на тумбочке, в сумке, на диване.', en: 'Keep a book where you usually reach for your phone: by the bed, in your bag, on the couch.' },
     { ru: 'Скучная книга — не обязанность. Бросайте её и берите ту, от которой не оторваться.', en: 'A boring book is not an obligation. Drop it and pick one you can\'t put down.' },
     { ru: 'Аудиокниги тоже считаются — слушайте в дороге или на прогулке.', en: 'Audiobooks count too — listen on the go or on a walk.' },
@@ -112,6 +113,11 @@ const TIPS = {
     { ru: 'Правило двух минут: убирайте стол в конце дня — завтра начнёте с чистого листа.', en: 'The two-minute rule: clear your desk at the end of the day — start tomorrow fresh.' },
     { ru: 'У каждой вещи — своё место. Без места вещь и копится на столе.', en: 'Give everything a home. Things without one pile up on the desk.' },
     { ru: 'Оставьте на столе только то, чем пользуетесь каждый день.', en: 'Keep only what you use every day on the desk.' },
+  ],
+  wake_early: [
+    { ru: 'Откройте YouBoost сразу после пробуждения — до 8:00 привычка отметится сама.', en: 'Open YouBoost right after waking up — before 8 am the habit checks itself off.' },
+    { ru: 'Ранний подъём начинается вечером: ложитесь на 15 минут раньше каждые несколько дней.', en: 'Waking early starts the night before: go to bed 15 minutes earlier every few days.' },
+    { ru: 'Придумайте приятную причину вставать: вкусный завтрак, тихий кофе, любимый сериал за зарядкой.', en: 'Give yourself a pleasant reason to get up: a tasty breakfast, quiet coffee, a favorite show during your workout.' },
   ],
   no_snooze: [
     { ru: 'Поставьте будильник на другом конце комнаты — придётся встать, чтобы его выключить.', en: 'Put the alarm across the room — you\'ll have to get up to turn it off.' },
