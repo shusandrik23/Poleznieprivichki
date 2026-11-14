@@ -1,0 +1,20 @@
+{
+  "name": "Внутренний компас — практики проработки эмоций",
+  "short_name": "Компас",
+  "description": "11 интерактивных психологических практик: SOS, голосовой гид, работа в паре, холст, дневники. Офлайн, данные только на устройстве.",
+  "lang": "ru",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5f3ef",
+  "theme_color": "#5b6ee1",
+  "icons": [
+    { "src": "icons/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png" },
+    { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    { "name": "SOS — Скорая помощь", "url": "./#/run/tablet/guide/sos" },
+    { "name": "Вечерний дневник", "url": "./#/course" }
+  ]
+}
