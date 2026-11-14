@@ -338,6 +338,39 @@
   .promo.won { font-weight: 600; }
   .promo-card { padding: 0; background: transparent; border: 0; box-shadow: none; }
   .promo-card .promo { margin: 0; }
+
+  /* Вкладка «Дети» (YouBoost Kids) */
+  .fam-intro .fam-hero { font-size: 48px; }
+  .fam-list { text-align: left; font-size: 14px; color: var(--muted); padding-left: 20px; }
+  .fam-avatar { width: 40px; height: 40px; border-radius: 50%; display: grid; place-items: center; font-size: 22px; flex: none; }
+  .fam-name { font-size: 17px; }
+  .fam-stars { font-weight: 700; background: #fff3c9; color: #8a6200; border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+  .fam-today { margin-top: 8px; }
+  .fam-tasks { display: flex; flex-wrap: wrap; gap: 4px 10px; margin-top: 6px; font-size: 13px; }
+  .fam-task { white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .fam-sub { margin-top: 12px; font-size: 12px; font-weight: 600; color: var(--muted); text-transform: uppercase; letter-spacing: .03em; }
+  .fam-line { padding: 6px 0; border-bottom: 1px dashed var(--line); font-size: 14px; }
+  .fam-alert { margin-top: 10px; padding: 10px 12px; border-radius: 10px; background: var(--accent-soft); font-size: 14px; display: grid; gap: 8px; }
+  .fam-actions { margin-top: 12px; }
+  .fam-form { margin-top: 10px; padding: 12px; border-radius: 10px; background: var(--bg); }
+  .fam-form select, .card select { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); font: inherit; width: auto !important; }
+  .fam-code { margin-top: 10px; padding: 12px; border-radius: 10px; background: var(--bg); text-align: center; }
+  .fam-code-num { font-size: 30px; font-weight: 800; letter-spacing: .15em; margin: 6px 0; user-select: all; }
+  .fam-keep { flex-basis: 100%; }
+  .fam-setup .fam-line { flex-wrap: nowrap; }
+  .fam-setup .fam-line > span:first-child { min-width: 0; }
+  .fam-setup .fam-line .row { flex-wrap: nowrap; flex: none; }
+  .fam-setup .fam-line .small-btn { padding: 4px 8px; }
+  .fam-setup { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--line); }
+  .fam-days { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 14px; }
+  .fam-days label { display: flex; gap: 4px; align-items: center; }
+  .fam-grid { display: grid; grid-template-columns: 30px repeat(7, 1fr); gap: 4px; align-items: center; text-align: center; margin-top: 6px; }
+  .fam-cell { aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 13px; padding: 0; }
+  .fam-cell.off { border: 0; background: transparent; }
+  .fam-cell.done { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .fam-cell.pending { background: #fff3c9; border-color: #e0a526; }
+  .fam-cell.rejected { color: var(--danger); }
+  @media (prefers-color-scheme: dark) { .fam-stars { background: #4a3d12; color: #ffc83d; } }
 </style>
 </head>
 <body>
@@ -355,6 +388,7 @@
     <button data-tab="habits"><span data-i18n="tab.habits">Мои привычки</span><span class="badge"></span></button>
     <button data-tab="friends"><span data-i18n="tab.friends">Друзья</span><span class="badge"></span></button>
     <button data-tab="challenges"><span data-i18n="tab.challenges">Вызовы</span><span class="badge"></span></button>
+    <button data-tab="family"><span data-i18n="tab.family">Дети</span><span class="badge"></span></button>
   </nav>
 
   <section class="view" id="view-habits">
@@ -383,6 +417,7 @@
 
   <section class="view" id="view-friends" hidden></section>
   <section class="view" id="view-challenges" hidden></section>
+  <section class="view" id="view-family" hidden></section>
   <section class="view" id="view-settings" hidden></section>
 </main>
 <div class="quote-overlay" id="quote" hidden role="dialog" aria-modal="true" aria-labelledby="quoteText">

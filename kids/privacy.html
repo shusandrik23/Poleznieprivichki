@@ -1,0 +1,149 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>YouBoost Kids — политика конфиденциальности</title>
+<link rel="icon" href="icons/favicon.png" type="image/png">
+<style>
+  :root { --bg: #fff7ec; --card: #fff; --text: #2b2340; --muted: #7a7290; --line: #f0e4d4; --accent: #ff8a3d; }
+  @media (prefers-color-scheme: dark) { :root { --bg: #1a1626; --card: #252036; --text: #f2eefc; --muted: #a79fbf; --line: #362f4d; } }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--bg); color: var(--text); font: 16px/1.6 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+  main { max-width: 760px; margin: 0 auto; padding: 24px 16px 64px; }
+  header { display: flex; align-items: center; gap: 12px; justify-content: space-between; flex-wrap: wrap; }
+  header .brand { display: flex; align-items: center; gap: 12px; }
+  header img { width: 48px; height: 48px; border-radius: 12px; }
+  h1 { font-size: 26px; margin: 0; line-height: 1.2; }
+  h2 { font-size: 19px; margin: 28px 0 8px; }
+  .muted { color: var(--muted); font-size: 14px; }
+  .lang { display: flex; border: 1px solid var(--line); border-radius: 999px; overflow: hidden; }
+  .lang button { border: 0; background: transparent; color: var(--muted); font: 600 14px system-ui, sans-serif; padding: 6px 14px; cursor: pointer; }
+  .lang button.active { background: var(--accent); color: #fff; }
+  table { width: 100%; border-collapse: collapse; margin: 8px 0; font-size: 15px; }
+  th, td { text-align: left; padding: 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { color: var(--muted); font-size: 13px; }
+  .card { background: var(--card); border: 1px solid var(--line); border-radius: 18px; padding: 4px 18px 18px; margin-top: 18px; }
+  a { color: var(--accent); }
+  ul { padding-left: 22px; }
+  [hidden] { display: none !important; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div class="brand"><img src="icons/icon-192.png" alt=""><div><h1 data-ru="Политика конфиденциальности" data-en="Privacy Policy">Политика конфиденциальности</h1><div class="muted">YouBoost Kids</div></div></div>
+    <div class="lang"><button data-lang="ru" class="active">RU</button><button data-lang="en">EN</button></div>
+  </header>
+
+  <article id="ru" class="card">
+    <p class="muted">Действует с 13 ноября 2026 года.</p>
+    <p>YouBoost Kids — приложение, в котором дети выполняют полезные дела, получают звёзды, растят виртуального питомца и собирают наклейки, а родители задают привычки и награды. Приложение рассчитано на семьи с детьми 6–14 лет. Управляет приложением и даёт согласие на обработку данных <b>родитель</b>.</p>
+
+    <h2>1. Главное</h2>
+    <ul>
+      <li>В приложении <b>нет рекламы</b>, покупок, сторонней аналитики и трекеров.</li>
+      <li>Дети <b>не общаются</b> с посторонними: нет чатов, поиска людей и публичных профилей. Видно свою семью и друзей, которых ребёнок добавил сам.</li>
+      <li>Ребёнку <b>не нужен аккаунт</b> и адрес почты. Его телефон подключает родитель кодом.</li>
+      <li>Мы не собираем местоположение, контакты, фото, голос, данные о здоровье и рекламные идентификаторы.</li>
+    </ul>
+
+    <h2>2. Без аккаунта</h2>
+    <p>Если ребёнок начинает сам («Я ребёнок — начну сам»), он получает случайный ник, а все его данные хранятся только на телефоне. Приложение ничего не отправляет на сервер, а друзья и вызовы закрыты, пока родитель не подключит телефон.</p>
+
+    <h2>3. С аккаунтом родителя</h2>
+    <p>Семьёй управляет родитель в приложении YouBoost (вкладка «Дети»). Если родитель входит через Google, данные семьи хранятся в облачной базе Google Firebase (Firestore), чтобы работать на нескольких устройствах:</p>
+    <table>
+      <tr><th>Данные</th><th>Зачем</th></tr>
+      <tr><td>Идентификатор, почта и имя аккаунта Google родителя</td><td>Вход и показ имени родителя в семейных вызовах</td></tr>
+      <tr><td>Имя (или прозвище), возраст, аватар-эмодзи и цвет ребёнка</td><td>Показ профиля ребёнка в семье. Можно указать только прозвище</td></tr>
+      <tr><td>Привычки, отметки по дням, звёзды, награды и запросы наград, питомец, семейные вызовы</td><td>Работа приложения</td></tr>
+      <tr><td>Анонимный идентификатор телефона ребёнка и название устройства</td><td>Подключение телефона ребёнка к семье без аккаунта</td></tr>
+    </table>
+    <p>PIN родителя и настройки (язык, звуки, напоминание) хранятся только на устройстве.</p>
+
+    <h2>4. Друзья</h2>
+    <p>Ребёнок может подружиться с другим ребёнком только по личному приглашению: ссылке или коду. Поиска людей нет. Друга из контактов телефона ребёнок выбирает в системном окне. Приложение получает только номер выбранного контакта, чтобы открыть SMS или WhatsApp с приглашением, и этот номер <b>не сохраняет и никуда не отправляет</b>. Доступа ко всей телефонной книге у приложения нет. Дружба по коду начинается только после того, как её разрешат родители обоих детей. Родитель видит всех друзей ребёнка и может удалить любого.</p>
+    <p>Друг видит только имя (или прозвище), аватар-эмодзи, питомца и общие вызовы. Возраст, дела, звёзды и награды друзьям не видны.</p>
+
+    <h2>5. Кто видит данные</h2>
+    <p>Только участники вашей семьи: родители, вошедшие через Google и подключённые кодом, и телефоны детей, подключённые родителем. Телефон ребёнка может отмечать свои дела, запрашивать награды и выбирать питомца, но не может менять привычки, награды и подтверждения. Доступ проверяют правила базы данных на сервере. Мы не продаём и не передаём данные третьим лицам. Обработчик данных — Google (Firebase).</p>
+
+    <h2>6. Удаление</h2>
+    <ul>
+      <li>Родитель может удалить ребёнка или всю семью в приложении YouBoost (вкладка «Дети» → «⚙️ Настроить» → «Удалить ребёнка» или «Удалить семью и все данные детей»). Данные удаляются из облака сразу.</li>
+      <li>Отключить телефон ребёнка можно в приложении родителя или на самом телефоне (⚙️ → «Отключить это устройство от семьи»).</li>
+      <li>Коды подключения перестают действовать через 24 часа.</li>
+    </ul>
+
+    <h2>7. Права родителя</h2>
+    <p>Родитель может в любой момент посмотреть, исправить или удалить данные ребёнка в приложении или написать нам.</p>
+
+    <h2>8. Контакты</h2>
+    <p>Вопросы о конфиденциальности и запросы на удаление: <a href="mailto:app.youboost@gmail.com">app.youboost@gmail.com</a>.</p>
+  </article>
+
+  <article id="en" class="card" hidden>
+    <p class="muted">Effective November 13, 2026.</p>
+    <p>YouBoost Kids is an app where kids complete good habits, earn stars, grow a virtual pet and collect stickers, while parents set the habits and rewards. It is designed for families with children aged 6–14. The app is managed, and consent to data processing is given, by a <b>parent</b>.</p>
+
+    <h2>1. Key points</h2>
+    <ul>
+      <li><b>No ads</b>, no purchases, no third-party analytics or trackers.</li>
+      <li>Kids <b>cannot communicate</b> with strangers: no chats, no people search, no public profiles. Only your family and friends your child added personally are visible.</li>
+      <li>A child <b>needs no account</b> or email address. A parent connects the child's phone with a code.</li>
+      <li>We do not collect location, contacts, photos, voice, health data or advertising IDs.</li>
+    </ul>
+
+    <h2>2. Without an account</h2>
+    <p>If a child starts on their own (“I'm a kid — I'll start myself”), they get a random nickname and all their data stays on the phone. The app sends nothing to the server, and friends and challenges stay closed until a parent connects the phone.</p>
+
+    <h2>3. With a parent account</h2>
+    <p>The family is managed by a parent in the YouBoost app (“Kids” tab). If a parent signs in with Google, family data is stored in Google Firebase (Firestore) so it works across devices:</p>
+    <table>
+      <tr><th>Data</th><th>Purpose</th></tr>
+      <tr><td>Parent's Google account ID, email and name</td><td>Sign-in and showing the parent's name in family challenges</td></tr>
+      <tr><td>Child's name (or nickname), age, emoji avatar and color</td><td>Showing the child's profile within the family. A nickname is fine</td></tr>
+      <tr><td>Habits, daily check-ins, stars, rewards and reward requests, pet, family challenges</td><td>Running the app</td></tr>
+      <tr><td>Anonymous ID of the child's phone and device name</td><td>Connecting the child's phone to the family without an account</td></tr>
+    </table>
+    <p>The parent PIN and settings (language, sounds, reminder) are stored on the device only.</p>
+
+    <h2>4. Friends</h2>
+    <p>A child can become friends with another child only through a personal invite: a link or a code. There is no people search. A friend from the phone's contacts is chosen in the system picker. The app receives only the chosen contact's number to open SMS or WhatsApp with the invite, and <b>does not store or send that number anywhere</b>. The app has no access to the whole address book. A friendship by code starts only after both children's parents allow it. A parent sees all of the child's friends and can remove any of them.</p>
+    <p>A friend sees only the name (or nickname), emoji avatar, pet and shared challenges. Age, tasks, stars and rewards are not visible to friends.</p>
+
+    <h2>5. Who can see the data</h2>
+    <p>Only members of your family: parents signed in with Google and connected with a code, and children's phones connected by a parent. A child's phone can check off its own tasks, request rewards and choose a pet, but cannot change habits, rewards or approvals. Access is enforced by server-side database rules. We do not sell or share data with third parties. Data processor: Google (Firebase).</p>
+
+    <h2>6. Deletion</h2>
+    <ul>
+      <li>A parent can remove a child or the whole family in the YouBoost app (“Kids” tab → “⚙️ Set up” → “Remove child” or “Delete family and all children's data”). Data is removed from the cloud immediately.</li>
+      <li>A child's phone can be disconnected from the parent's app or on the phone itself (⚙️ → “Disconnect this device from the family”).</li>
+      <li>Connection codes expire after 24 hours.</li>
+    </ul>
+
+    <h2>7. Parent rights</h2>
+    <p>A parent can view, correct or delete a child's data at any time in the app, or contact us.</p>
+
+    <h2>8. Contact</h2>
+    <p>Privacy questions and deletion requests: <a href="mailto:app.youboost@gmail.com">app.youboost@gmail.com</a>.</p>
+  </article>
+</main>
+<script>
+  const params = new URLSearchParams(location.search);
+  let lang = params.get('lang') || ((navigator.language || 'en').toLowerCase().startsWith('ru') ? 'ru' : 'en');
+  function apply(l) {
+    lang = l;
+    document.documentElement.lang = l;
+    document.getElementById('ru').hidden = l !== 'ru';
+    document.getElementById('en').hidden = l !== 'en';
+    document.querySelectorAll('[data-' + l + ']').forEach(el => { el.textContent = el.dataset[l]; });
+    document.title = l === 'ru' ? 'YouBoost Kids — политика конфиденциальности' : 'YouBoost Kids — Privacy Policy';
+    document.querySelectorAll('.lang button').forEach(b => b.classList.toggle('active', b.dataset.lang === l));
+  }
+  document.querySelectorAll('.lang button').forEach(b => b.addEventListener('click', () => apply(b.dataset.lang)));
+  apply(lang);
+</script>
+</body>
+</html>
