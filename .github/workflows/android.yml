@@ -6,6 +6,8 @@ on:
   push:
     paths-ignore:
       - 'README.md'
+      - 'dosha-test/**'
+      - '.github/workflows/dosha-test.yml'
   workflow_dispatch:
 
 jobs:
