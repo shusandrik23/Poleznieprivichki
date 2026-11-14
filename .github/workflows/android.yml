@@ -1,4 +1,4 @@
-# Сборка Android-приложений (отладочные APK) при каждом обновлении ветки: YouBoost и YouBoost Kids.
+# Сборка Android-приложений (отладочные APK) при каждом обновлении ветки: YouBoost, YouBoost Kids и Говорун.
 # Готовый файл: вкладка Actions → последний запуск «Android APK» → Artifacts → youboost-debug.
 name: Android APK
 
@@ -7,6 +7,7 @@ on:
     paths-ignore:
       - 'README.md'
       - 'kids/README.md'
+      - 'govorun/README.md'
   workflow_dispatch:
 
 jobs:
@@ -79,4 +80,40 @@ jobs:
         with:
           name: youboost-kids-debug
           path: kids/android/app/build/outputs/apk/debug/app-debug.apk
+          retention-days: 30
+
+  # Говорун — тренажёр ораторского искусства (папка govorun/). Готовый файл: Artifacts → govorun-debug.
+  govorun:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: govorun
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: govorun/package-lock.json
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - name: Установка зависимостей
+        run: npm ci
+
+      - name: Сборка веб-части и перенос в Android
+        run: npm run sync
+
+      - name: Сборка APK
+        working-directory: govorun/android
+        run: ./gradlew assembleDebug --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: govorun-debug
+          path: govorun/android/app/build/outputs/apk/debug/app-debug.apk
           retention-days: 30
