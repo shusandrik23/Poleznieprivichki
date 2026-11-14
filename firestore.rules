@@ -308,7 +308,9 @@ service cloud.firestore {
           || (kidsMember(fid)
             && get(kidsMemberDoc(fid)).data.role == 'child'
             && get(kidsMemberDoc(fid)).data.kidId == kid
-            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['marks', 'requests', 'chMarks', 'pet', 'proposals']));
+            && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['marks', 'requests', 'chMarks', 'pet', 'proposals', 'habits'])
+            // привычки телефон ребёнка может только перенести из самостоятельного режима — в пустой список
+            && (!request.resource.data.diff(resource.data).affectedKeys().hasAny(['habits']) || resource.data.get('habits', []).size() == 0));
       }
     }
     // ---------- YouBoost Kids: друзья из разных семей ----------

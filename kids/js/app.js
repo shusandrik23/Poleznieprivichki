@@ -1,9 +1,10 @@
 // Интерфейс YouBoost Kids: экраны родителя и ребёнка.
+import { setupSolo, isSolo } from './store.js';
 import { S, initStore, kidsList, updateFamily, updateKid, addKid, removeKid, setupLocal, parentSignIn, joinWithCode, parentJoin, createCode, removeMember, leaveDevice, deleteFamily, isOwner, friendInvite, friendGetInvite, friendAccept, friendUpdate, friendRemove, friendRefreshCards } from './store.js';
 import * as F from './friends.js';
 import * as G from './logic.js';
 import { t, pw, lang, setLang, LANGS, L, raw } from './i18n.js';
-import { CATEGORIES, HABITS, REWARDS, HABIT_EMOJI, REWARD_EMOJI, AVATARS, COLORS, starterFor } from './catalog.js';
+import { CATEGORIES, HABITS, REWARDS, HABIT_EMOJI, REWARD_EMOJI, AVATARS, COLORS, starterFor, randomNick } from './catalog.js';
 import { canPickContact, pickContact, openSms, openWhatsApp } from './native.js';
 import { isNative, hasNativeGoogle, PUBLIC_URL, shareText, copyText, scheduleDailyReminder, cancelDailyReminder, canRemind, onBackButton } from './native.js';
 
@@ -142,7 +143,7 @@ function render() {
 
 // Ссылка от родителя (?join=КОД): подключаемся сами, без ввода кода.
 function autoJoin() {
-  if (!ui.joinCode || ui.autoJoined || !S.ready || !S.cloudReady || S.mode || ui.busy) return;
+  if (!ui.joinCode || ui.autoJoined || !S.ready || !S.cloudReady || (S.mode && !isSolo()) || ui.busy) return;
   ui.autoJoined = true;
   const code = ui.joinCode;
   setTimeout(() => busy(async () => {
@@ -204,6 +205,21 @@ function welcome() {
       </div>${msgLine()}${S.cloudReady ? '' : offline}
       <button class="link" data-act="welcome" data-step="start">${t('welcome.back')}</button></main>`;
   }
+  if (ui.welcome === 'solo') {
+    const d = (ui.solo ||= { name: randomNick(lang), age: 8, avatar: AVATARS[Math.floor(Math.random() * AVATARS.length)], color: COLORS[Math.floor(Math.random() * COLORS.length)] });
+    return `<main class="narrow">
+      <div class="hero small"><div class="avatar xl" style="background:${d.color}">${d.avatar}</div></div>
+      <div class="card stack"><h2>${t('solo.title')}</h2><p class="muted">${t('solo.text')}</p>
+        <div class="field"><span>${t('solo.nick')}</span><div class="row"><div class="nick-big grow">${e(d.name)}</div><button class="btn" data-act="soloReroll" aria-label="${t('solo.reroll')}">🎲</button></div></div>
+        <div class="field"><span>${t('setup.kidAge')}</span>
+          <div class="chips">${[5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map(a => `<button type="button" class="chip ${d.age === a ? 'sel' : ''}" data-act="soloSet" data-k="age" data-v="${a}">${a}</button>`).join('')}</div></div>
+        <div class="field"><span>${t('setup.avatar')}</span>
+          <div class="emoji-grid">${AVATARS.map(a => `<button type="button" class="emo ${d.avatar === a ? 'sel' : ''}" data-act="soloSet" data-k="avatar" data-v="${a}">${a}</button>`).join('')}</div></div>
+        <button class="btn big primary" data-act="soloStart">${t('solo.go')}</button>
+        <p class="hint center">${t('solo.local')}</p>
+      </div>
+      <button class="link" data-act="welcome" data-step="start">${t('welcome.back')}</button></main>`;
+  }
   if (ui.welcome === 'child' || ui.welcome === 'parentCode') {
     const child = ui.welcome === 'child';
     return `<main class="narrow">${head}
@@ -222,7 +238,8 @@ function welcome() {
     <div class="card center"><h2>${t('welcome.title')}</h2><p class="muted">${t('welcome.text')}</p>
       <div class="stack">
         <button class="btn big primary" data-act="welcome" data-step="parent">${t('welcome.parent')}</button>
-        <button class="btn big" data-act="welcome" data-step="child">${t('welcome.child')}</button>
+        <button class="btn big" data-act="welcome" data-step="solo">${t('welcome.solo')}</button>
+        <button class="link" data-act="welcome" data-step="child">${t('welcome.childCode')}</button>
       </div>
     </div>
     <div class="lang-row">${LANGS.map(([c, n]) => `<button class="chip ${c === lang ? 'sel' : ''}" data-act="lang" data-lang="${c}">${n}</button>`).join('')}</div>
@@ -330,6 +347,7 @@ function friendChallengeHtml(fr, kid, c) {
 }
 
 function kidFriends(kid) {
+  if (isSolo()) return soloBanner(t('solo.friends'));
   if (S.mode !== 'cloud') return `<div class="empty">👫<p>${t('fr.needCloud')}</p></div>`;
   const list = myFriendships(kid);
   const active = list.filter(F.isActive);
@@ -414,6 +432,7 @@ function kidToday(kid) {
   const list = G.todayList(kid, day);
   const done = list.filter(h => G.isDone(kid, h, day)).length;
   let html = petCard(kid);
+  if (isSolo()) html += `<div class="row gap solo-row"><button class="btn primary grow" data-act="callParent">${t('solo.call')}</button><button class="btn grow" data-act="soloTasks" data-kid="${kid.id}">${t('solo.myTasks')}</button></div><div class="spacer"></div>`;
   if (!(kid.habits || []).length) return html + `<div class="empty">🗒️<p>${t('kid.noHabits')}</p></div>`;
   if (!list.length) html += `<div class="empty">${t('kid.nothing')}</div>`;
   else {
@@ -430,9 +449,15 @@ function kidToday(kid) {
   return html;
 }
 
+function soloBanner(text = t('solo.callText')) {
+  return `<section class="card center solo-banner"><div class="logo-big">👨‍👩‍👧</div><h2>${t('solo.callTitle')}</h2><p class="muted">${e(text)}</p>
+    <button class="btn primary big" data-act="callParent">${t('solo.call')}</button></section>`;
+}
+
 function kidRewards(kid, bal) {
   const rewards = S.family?.rewards || [];
   let html = `<section class="balance-card"><div class="big-num">⭐ ${bal}</div><div>${pw(bal, 'star')}</div></section>`;
+  if (isSolo()) return html + soloBanner(t('solo.rewards'));
   if (!rewards.length) html += `<div class="empty">🎁<p>${t('kid.noRewards')}</p></div>`;
   html += `<div class="reward-grid">${rewards.map(r => {
     const can = bal >= r.cost;
@@ -501,6 +526,7 @@ function adultsList() {
 function kidChallenges(kid) {
   const pid = 'k:' + kid.id;
   const list = sortedChallenges().filter(ch => ch.participants?.includes(pid));
+  if (isSolo()) return soloBanner(t('solo.challenges'));
   let html = `<button class="btn primary big" data-act="propose" data-kid="${kid.id}">${t('kid.propose')}</button><div class="spacer"></div>`;
   const props = (kid.proposals || []).slice().reverse().slice(0, 6);
   if (props.length) {
@@ -786,7 +812,28 @@ function modalView() {
         <div class="field"><span>${t('ch.days')}</span><div class="chips">${[3, 7, 14, 21].map(n => `<button type="button" class="chip ${d.days === n ? 'sel' : ''}" data-act="mdraft" data-k="days" data-v="${n}" data-num>${n}</button>`).join('')}</div></div>
         <button class="btn primary big">${t('kid.proposeSend')} ⚔️</button></form>`;
     }
+    case 'soloTasks': {
+      const kid = S.kids[m.kid];
+      return `${close}<h2>${t('solo.tasksTitle')}</h2><div class="list">
+        ${(kid.habits || []).map(h => `<button class="h-row" data-act="editHabit" data-kid="${kid.id}" data-hid="${h.id}"><span class="h-emoji sm">${e(h.emoji)}</span><span class="grow"><b>${e(h.name)}</b><span class="small block">${'⭐'.repeat(Math.min(h.stars, 3))} · ${daysText(h.days)}</span></span><span class="muted">›</span></button>`).join('') || `<p class="muted">${t('kids.noHabits')}</p>`}
+        <div class="row gap"><button class="btn grow" data-act="catalog" data-kid="${kid.id}">📋 ${t('kids.fromCatalog')}</button><button class="btn grow" data-act="newHabit" data-kid="${kid.id}">✏️ ${t('kids.custom')}</button></div></div>`;
+    }
+    case 'callParent':
+      return `${close}<div class="center"><div class="cele-emoji">👨‍👩‍👧</div><h2>${t('solo.callTitle')}</h2><p class="muted">${t('solo.callText')}</p></div>
+        <div class="stack"><button class="btn primary big" data-act="soloShare">${t('solo.send')}</button></div>
+        <form data-form="joinChild" class="stack" style="margin-top:16px"><h3 class="section">${t('solo.haveCode')}</h3>
+          <input id="code" class="code-input" maxlength="8" autocomplete="off" autocapitalize="characters" placeholder="${t('welcome.codePh')}">
+          ${ui.msg?.error ? `<p class="msg error">${e(ui.msg.text)}</p>` : ''}
+          <button class="btn big" ${ui.busy || !S.cloudReady ? 'disabled' : ''}>${t('welcome.connect')}</button></form>`;
     case 'childSettings':
+      if (isSolo()) return `${close}<h2>${t('set.title')}</h2><div class="list">
+        <div class="row-between"><span>${t('set.lang')}</span><div class="chips">${LANGS.map(([c, n]) => `<button class="chip ${c === lang ? 'sel' : ''}" data-act="lang" data-lang="${c}">${n}</button>`).join('')}</div></div>
+        <label class="row-between"><span>${t('set.sound')}</span><input type="checkbox" class="switch" data-act="sound" ${prefs.sound ? 'checked' : ''}></label>
+        ${reminderRow()}
+        <p class="hint">${t('solo.local')}</p>
+        <button class="btn primary full" data-act="callParent">${t('solo.call')}</button>
+        <a class="h-row" href="privacy.html" target="_blank" rel="noopener"><span class="grow">${t('set.privacy')}</span><span class="muted">›</span></a>
+        <button class="btn full" data-act="soloRestart">${t('solo.restart')}</button></div>`;
       return `${close}<h2>${t('set.title')}</h2><div class="list">
         <div class="row-between"><span>${t('set.lang')}</span><div class="chips">${LANGS.map(([c, n]) => `<button class="chip ${c === lang ? 'sel' : ''}" data-act="lang" data-lang="${c}">${n}</button>`).join('')}</div></div>
         <label class="row-between"><span>${t('set.sound')}</span><input type="checkbox" class="switch" data-act="sound" ${prefs.sound ? 'checked' : ''}></label>
@@ -808,8 +855,8 @@ function habitForm(m) {
     <div class="field"><span>${t('habit.days')}</span><div class="chips">
       <button type="button" class="chip ${all ? 'sel' : ''}" data-act="hdays" data-v="all">${t('habit.everyDay')}</button>
       ${order.map(n => `<button type="button" class="chip day ${!all && d.days.includes(n) ? 'sel' : ''}" data-act="hdays" data-v="${n}">${raw('days')[n]}</button>`).join('')}</div></div>
-    <label class="check"><input type="checkbox" id="h_approval" ${d.approval ? 'checked' : ''} data-fresh> ${t('habit.approval')}</label>
-    <p class="hint">${t('habit.approvalHint')}</p>
+    ${isSolo() ? '' : `<label class="check"><input type="checkbox" id="h_approval" ${d.approval ? 'checked' : ''} data-fresh> ${t('habit.approval')}</label>
+    <p class="hint">${t('habit.approvalHint')}</p>`}
     <button class="btn primary big">${t('common.save')}</button>
     ${m.hid ? `<button type="button" class="link danger" data-act="deleteHabit">${t('habit.delete')}</button>` : ''}
   </form>`;
@@ -883,7 +930,8 @@ function readKidForm(root, prefix, d) {
 }
 
 function habitFromCatalog(c) {
-  return { id: G.newId(), code: c.code, name: c[lang] || c.en, emoji: c.emoji, stars: c.stars, days: c.days ? [...c.days] : [], approval: !!c.approval, since: G.today() };
+  // в самостоятельном режиме подтверждать некому
+  return { id: G.newId(), code: c.code, name: c[lang] || c.en, emoji: c.emoji, stars: c.stars, days: c.days ? [...c.days] : [], approval: !!c.approval && !isSolo(), since: G.today() };
 }
 
 async function toggleMark(kidId, hid, day, ctx, el) {
@@ -1158,7 +1206,26 @@ const actions = {
     if ((word || '').trim().toLowerCase() !== t('set.deleteWord')) return;
     busy(async () => { await deleteFamily(); prefs.kidMode = null; prefs.pin = null; prefs.seen = {}; savePrefs(); ui.welcome = 'start'; });
   },
-  childSettings: () => openGate('childSettings'),
+  childSettings: () => (isSolo() ? openModal({ type: 'childSettings' }) : openGate('childSettings')),
+  soloReroll: () => { ui.solo.name = randomNick(lang); sound('pop'); render(); },
+  soloSet: d => { ui.solo[d.k] = d.k === 'age' ? Number(d.v) : d.v; render(); },
+  soloStart: () => {
+    const d = ui.solo;
+    const habits = starterFor(d.age).map(code => habitFromCatalog(HABITS.find(h => h.code === code))).map(h => ({ ...h, approval: false }));
+    setupSolo({ name: d.name, age: d.age, avatar: d.avatar, color: d.color, habits });
+    prefs.ktab = 'today'; prefs.pin = null; savePrefs();
+    ui.solo = null;
+    confetti(40); sound('fanfare');
+    render();
+  },
+  soloTasks: d => openModal({ type: 'soloTasks', kid: d.kid }),
+  callParent: () => { ui.msg = null; openModal({ type: 'callParent' }); },
+  soloShare: async () => { try { await shareText(t('solo.message', { url: PUBLIC_URL })); } catch (err) {} },
+  soloRestart: () => {
+    if (!confirm(t('solo.restartConfirm'))) return;
+    closeModal();
+    busy(async () => { await leaveDevice(); prefs.seen = {}; savePrefs(); ui.welcome = 'start'; });
+  },
   unlinkSelf: () => { if (confirm(t('set.unlinkConfirm'))) { closeModal(); busy(async () => { await leaveDevice(); ui.welcome = 'start'; }); } },
 };
 
@@ -1215,9 +1282,13 @@ async function pinKey(k, purpose) {
 const forms = {
   joinChild: f => {
     const code = f.querySelector('#code').value;
+    const fromModal = modal?.type === 'callParent';
     busy(async () => {
-      await joinWithCode(code, navigator.userAgent.includes('Android') ? 'Android' : (navigator.platform || ''));
+      try {
+        await joinWithCode(code, navigator.userAgent.includes('Android') ? 'Android' : (navigator.platform || ''));
+      } finally { if (fromModal && modal) renderModal(); }
       prefs.ktab = 'today'; savePrefs();
+      if (fromModal) closeModal();
     });
   },
   joinParent: f => {

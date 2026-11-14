@@ -91,3 +91,20 @@ export const AVATARS = ['🦁', '🐯', '🐻', '🐼', '🐨', '🐰', '🦊', 
 export const COLORS = ['#ff8a3d', '#7c5cff', '#2fbf71', '#ff5d8f', '#22a7f0', '#f5b400', '#14b8a6', '#e0533d'];
 
 export function habitByCode(code) { return HABITS.find(h => h.code === code); }
+
+// Случайный ник для самостоятельного старта: «Весёлый Енот 42». Настоящее имя не нужно.
+const NICK = {
+  ru: {
+    adj: ['Весёлый', 'Смелый', 'Быстрый', 'Добрый', 'Звёздный', 'Солнечный', 'Ловкий', 'Яркий', 'Чудесный', 'Хитрый', 'Космический', 'Радужный'],
+    noun: ['Енот', 'Лис', 'Дракон', 'Пингвин', 'Ёжик', 'Тигрёнок', 'Медвежонок', 'Единорог', 'Дельфин', 'Котёнок', 'Совёнок', 'Зайчик'],
+  },
+  en: {
+    adj: ['Happy', 'Brave', 'Speedy', 'Kind', 'Starry', 'Sunny', 'Clever', 'Bright', 'Super', 'Cosmic', 'Rainbow', 'Lucky'],
+    noun: ['Raccoon', 'Fox', 'Dragon', 'Penguin', 'Hedgehog', 'Tiger', 'Bear', 'Unicorn', 'Dolphin', 'Kitten', 'Owl', 'Bunny'],
+  },
+};
+export function randomNick(lang) {
+  const d = NICK[lang] || NICK.en;
+  const pick = a => a[Math.floor(Math.random() * a.length)];
+  return `${pick(d.adj)} ${pick(d.noun)} ${10 + Math.floor(Math.random() * 90)}`;
+}

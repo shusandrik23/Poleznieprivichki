@@ -65,7 +65,8 @@ export async function initStore(cb) {
   if (dev.mode === 'local') {
     const data = readJSON(LOCAL_KEY);
     if (data?.family) {
-      Object.assign(S, { mode: 'local', role: 'parent', family: data.family, kids: data.kids || {}, fid: 'local', synced: true });
+      const solo = dev.role === 'child' && dev.kidId && data.kids?.[dev.kidId];
+      Object.assign(S, { mode: 'local', role: solo ? 'child' : 'parent', kidId: solo ? dev.kidId : null, family: data.family, kids: data.kids || {}, fid: 'local', synced: true });
     }
   } else if (dev.mode === 'cloud') {
     Object.assign(S, { mode: 'cloud', role: dev.role, fid: dev.fid, kidId: dev.kidId || null });
@@ -287,6 +288,49 @@ export async function parentSignIn(familyName = '') {
   return result;
 }
 
+// Ребёнок начинает сам, без родителя: всё хранится только на телефоне (без сервера и без друзей),
+// пока родитель не подключит телефон ссылкой или кодом. Тогда звёзды, питомец и дела переедут в семью.
+export const isSolo = () => S.mode === 'local' && S.role === 'child';
+export function setupSolo(kid) {
+  const id = newId();
+  Object.assign(S, {
+    mode: 'local', role: 'child', fid: 'local', kidId: id, synced: true, family: emptyFamily(''),
+    kids: { [id]: { habits: [], marks: {}, approved: {}, requests: [], decisions: {}, bonus: [], chMarks: {}, pet: null, order: 0, createdAt: new Date().toISOString(), ...kid, id, solo: true } },
+  });
+  persistLocal();
+  saveDevice();
+  changed();
+}
+
+// Перенос самостоятельного прогресса в карточку ребёнка, которую создал родитель.
+// Телефон ребёнка может менять только свои поля (marks, pet…) и заполнить привычки, если их ещё нет.
+async function adoptSolo(fid, kidId, solo) {
+  const ref = fb.doc(db, 'kidsFamilies', fid, 'kids', kidId);
+  const snap = await fb.getDoc(ref);
+  if (!snap.exists()) return;
+  const target = snap.data();
+  const patch = {};
+  const targetHabits = target.habits || [];
+  const idMap = {};
+  if (!targetHabits.length) patch.habits = solo.habits || [];
+  else {
+    // одинаковые привычки из каталога — переносим отметки на привычки родителя
+    for (const h of solo.habits || []) {
+      const same = h.code && targetHabits.find(x => x.code === h.code);
+      if (same) idMap[h.id] = same.id;
+    }
+  }
+  const marks = { ...(target.marks || {}) };
+  for (const [day, dm] of Object.entries(solo.marks || {})) {
+    const out = { ...(marks[day] || {}) };
+    for (const [hid, stars] of Object.entries(dm || {})) out[idMap[hid] || hid] = out[idMap[hid] || hid] || stars;
+    marks[day] = out;
+  }
+  patch.marks = marks;
+  if (!target.pet && solo.pet) patch.pet = solo.pet;
+  await fb.updateDoc(ref, patch);
+}
+
 // Подключение по коду от родителя: устройство ребёнка (анонимный вход) или второй родитель (вход через Google).
 export async function joinWithCode(rawCode, deviceName = '') {
   assertCloud();
@@ -301,7 +345,9 @@ export async function joinWithCode(rawCode, deviceName = '') {
   const c = snap.data();
   if ((c.expires?.toMillis?.() || 0) < Date.now()) throw new Error('expired-code');
   if (c.role === 'parent' && S.user.anonymous) throw new Error('need-google');
+  if (c.role === 'parent' && isSolo()) throw new Error('need-google');
   const uid = S.user.uid;
+  const soloKid = isSolo() && c.role === 'child' ? S.kids[S.kidId] : null;
   const member = c.role === 'child'
     ? { role: 'child', kidId: c.kidId, code, name: deviceName }
     : { role: 'parent', code, name: S.user.name || '' };
@@ -310,7 +356,11 @@ export async function joinWithCode(rawCode, deviceName = '') {
   if (c.role === 'parent') {
     await fb.updateDoc(fb.doc(db, 'kidsFamilies', c.fid), { [`parents.${uid}`]: S.user.name || '' });
   }
-  Object.assign(S, { mode: 'cloud', role: c.role, fid: c.fid, kidId: c.kidId || null, unlinked: false });
+  if (soloKid) {
+    try { await adoptSolo(c.fid, c.kidId, soloKid); } catch (err) { console.error(err); }
+    try { localStorage.removeItem(LOCAL_KEY); } catch (err) {}
+  }
+  Object.assign(S, { mode: 'cloud', role: c.role, fid: c.fid, kidId: c.kidId || null, unlinked: false, kids: {}, family: null });
   saveDevice();
   listen();
   changed();
@@ -356,7 +406,7 @@ export async function leaveDevice() {
     try { await fb.deleteDoc(fb.doc(db, 'kidsFamilies', S.fid, 'members', S.user.uid)); } catch (err) {}
     try { await fb.deleteDoc(fb.doc(db, 'kidsUsers', S.user.uid)); } catch (err) {}
   }
-  resetDevice(S.mode !== 'local');
+  resetDevice(S.mode !== 'local' || isSolo());
   if (auth?.currentUser) {
     try { if (wasChild) await fb.deleteUser(auth.currentUser); } catch (err) {}
     try { await fb.signOut(auth); } catch (err) {}
