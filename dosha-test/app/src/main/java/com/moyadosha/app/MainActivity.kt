@@ -25,9 +25,9 @@ class MainActivity : ComponentActivity() {
     private fun share(text: String) {
         val send = Intent(Intent.ACTION_SEND).apply {
             type = "text/plain"
-            putExtra(Intent.EXTRA_SUBJECT, "Мой результат теста «Моя доша»")
+            putExtra(Intent.EXTRA_SUBJECT, vm.strings.shareSubject)
             putExtra(Intent.EXTRA_TEXT, text)
         }
-        startActivity(Intent.createChooser(send, "Поделиться результатом"))
+        startActivity(Intent.createChooser(send, vm.strings.share))
     }
 }

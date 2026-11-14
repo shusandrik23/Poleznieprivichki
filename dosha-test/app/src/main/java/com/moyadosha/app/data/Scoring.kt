@@ -6,7 +6,7 @@ data class DoshaResult(
     /** Ведущие доши по убыванию: одна, две (смешанный тип) или три (сбалансированный тип). */
     val leading: List<Dosha>,
 ) {
-    val typeName: String get() = leading.joinToString("-") { it.title }
+    fun typeName(lang: Lang): String = leading.joinToString("-") { it.title(lang) }
     val emoji: String get() = leading.joinToString("") { it.emoji }
 }
 

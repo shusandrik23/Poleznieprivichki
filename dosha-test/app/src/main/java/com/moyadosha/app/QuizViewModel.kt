@@ -8,19 +8,28 @@ import androidx.compose.runtime.setValue
 import androidx.lifecycle.ViewModel
 import com.moyadosha.app.data.DoshaResult
 import com.moyadosha.app.data.KID_MAX_AGE
+import com.moyadosha.app.data.Lang
 import com.moyadosha.app.data.Question
+import com.moyadosha.app.data.Recommendations
 import com.moyadosha.app.data.Scoring
+import com.moyadosha.app.data.UiStrings
 import com.moyadosha.app.data.questionsFor
 import kotlin.random.Random
 
 enum class Screen { Welcome, Quiz, Result }
 
 class QuizViewModel : ViewModel() {
+    /** Язык выбирается по языку системы: русский или английский. */
+    val lang: Lang = Lang.system()
+    val strings = UiStrings(lang)
+    val recommendations = Recommendations(lang)
+
     var screen by mutableStateOf(Screen.Welcome)
         private set
 
     var name by mutableStateOf("")
     var ageText by mutableStateOf("")
+    var length by mutableIntStateOf(35)
 
     val age: Int? get() = ageText.trim().toIntOrNull()?.takeIf { it in 1..110 }
     val isKid: Boolean get() = (age ?: 99) <= KID_MAX_AGE
@@ -42,7 +51,7 @@ class QuizViewModel : ViewModel() {
     fun start() {
         val a = age ?: return
         val rnd = Random(System.nanoTime())
-        questions = questionsFor(a).map { it.copy(options = it.options.shuffled(rnd)) }
+        questions = questionsFor(a, length, lang).map { it.copy(options = it.options.shuffled(rnd)) }
         answers.clear()
         repeat(questions.size) { answers.add(null) }
         index = 0
