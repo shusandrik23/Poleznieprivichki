@@ -152,6 +152,47 @@ body::before { content: ""; position: fixed; inset: 0 0 auto; height: env(safe-a
 .head .topbar { position: static; }
 .book { scroll-margin-top: calc(120px + env(safe-area-inset-top, 0px)); }
 
+/* practice before a test */
+.practice-card {
+  display: flex; align-items: center; gap: 12px; width: 100%; text-align: start; margin-block: 6px 4px;
+  background: var(--surface); border: 2px solid var(--primary); border-radius: 18px; padding: 10px 14px;
+  box-shadow: 0 4px 0 var(--primary-deep);
+}
+.practice-card .pc-icon { font-size: 28px; }
+.practice-card b { display: block; font-size: 18px; unicode-bidi: plaintext; }
+.practice-card > span:last-child { flex: 1; min-width: 0; }
+.practice-card small { color: var(--muted); font-size: 14px; unicode-bidi: plaintext; display: block; }
+.practice { padding-bottom: 20px; }
+.grade.on { background: var(--primary); color: var(--primary-ink); border-color: var(--primary); }
+.p-book { font-size: 20px; margin: 16px 0 8px; line-height: 1.4; }
+.p-book .ru { font-size: 14px; }
+.p-story { background: var(--surface); border: 2px solid var(--line); border-radius: 18px; margin-bottom: 12px; overflow: hidden; }
+.p-story.on { border-color: var(--gold); }
+.p-check { display: flex; align-items: center; gap: 10px; width: 100%; border: 0; background: none; padding: 12px 14px; text-align: start; }
+.p-check .box {
+  flex: none; width: 28px; height: 28px; border-radius: 8px; border: 2px solid var(--lock-deep);
+  display: grid; place-items: center; font-weight: 700; color: var(--gold-ink);
+}
+.p-story.on .box { background: var(--gold); border-color: var(--gold-deep); }
+.p-title { flex: 1; min-width: 0; font-weight: 700; font-size: 18px; }
+.p-count { color: var(--muted); font-size: 14px; font-variant-numeric: tabular-nums; }
+.p-lessons { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; padding: 0 12px 12px; }
+.p-lesson {
+  display: flex; align-items: center; gap: 6px; text-align: start; position: relative;
+  border: 2px solid var(--line); background: var(--bg); border-radius: 12px; padding: 6px 8px; font-size: 15px;
+}
+.p-lesson > span:nth-child(2) { min-width: 0; flex: 1; }
+.p-lesson.done { border-color: var(--ok); }
+.p-lesson i { font-style: normal; color: var(--ok); font-weight: 700; }
+.sheet-wrap { position: fixed; inset: 0; z-index: 30; background: rgb(0 0 0 / .35); display: flex; align-items: flex-end; justify-content: center; }
+.sheet {
+  width: 100%; max-width: 480px; background: var(--surface); border-radius: 22px 22px 0 0;
+  padding: 18px max(16px, env(safe-area-inset-right, 0px)) calc(18px + env(safe-area-inset-bottom, 0px)) max(16px, env(safe-area-inset-left, 0px));
+  display: grid; gap: 10px; justify-items: center; text-align: center;
+}
+.sheet p { margin: 0; font-size: 18px; unicode-bidi: plaintext; }
+.btn.ghost { background: none; color: var(--muted); box-shadow: none; border: 2px solid var(--line); }
+
 /* first launch */
 .welcome { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; text-align: center; gap: 14px; padding-block: 32px; }
 .welcome .mascot { width: 120px; height: 120px; }

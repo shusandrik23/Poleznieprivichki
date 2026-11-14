@@ -186,6 +186,10 @@ function renderHome() {
   </header>
   <nav class="grades" aria-label="כִּתּוֹת">${C.books.map(b => `<button class="grade" data-act="jump" data-book="${b.id}">${esc(b.subtitle)}</button>`).join('')}</nav></div>`;
 
+  html += `<button class="practice-card" data-act="practice"><span class="pc-icon">🎯</span>
+    <span><b>${tr('הֲכָנָה לַמִּבְחָן', 'Подготовка к контрольной')}</b>
+    <small>${tr('בַּחֲרוּ כָּל נוֹשֵׂא וְתַרְגְּלוּ בְּנִפְרָד', 'Любая тема отдельно и пробная контрольная')}</small></span></button>`;
+
   if (due.length) {
     html += `<div class="review-card">${mascot('happy')}
       <p>${ruOn() ? `<b>Мой словарь</b><br>Слов ждут короткого повторения: ${due.length}.`
@@ -255,13 +259,80 @@ function renderWelcome() {
 }
 
 /* ---------------- sessions ---------------- */
-function startLesson(id) {
+function startLesson(id, from) {
   const les = C.lessonById[id];
   S.lastBook = C.bookOf['lesson:' + id]; save();
   const tasks = les.tasks.map(t => prepTask(t, les));
   R = { kind: 'lesson', les, stage: 0, queue: tasks, total: tasks.length, solved: 0, mistakes: 0,
-        flipped: new Set(), ui: {} };
+        flipped: new Set(), from, ui: {} };
   renderSession();
+}
+
+/* ---------------- practice before a test ---------------- */
+// Any story of any grade, regardless of what is open on the map: single lessons or a mixed test.
+const storyById = id => C.books.flatMap(b => b.stories).find(s => s.id === id);
+
+function renderPractice() {
+  onHome = false; R = null;
+  if (!S.pBook || !C.steps[S.pBook]) S.pBook = S.lastBook && C.steps[S.lastBook] ? S.lastBook : C.books[0].id;
+  S.pSel = (S.pSel || []).filter(id => storyById(id));
+  const sel = new Set(S.pSel);
+  const book = C.books.find(b => b.id === S.pBook);
+  let html = `<header class="topbar"><button class="close" data-act="home" aria-label="${tr('חֲזָרָה', 'Назад')}">→</button>
+      <span class="brand">${tr('הֲכָנָה לַמִּבְחָן', 'Подготовка к контрольной')}</span></header>
+    <div class="practice">
+    <p class="hint">${tr('אֶפְשָׁר לַעֲבֹר כָּל שִׁעוּר בְּנִפְרָד, גַּם אִם הוּא עוֹד נָעוּל בַּמַּפָּה. סַמְּנוּ נוֹשֵׂא אֶחָד אוֹ כַּמָּה – וַעֲשׂוּ מִבְחַן נִסָּיוֹן.',
+      'Любой урок можно пройти отдельно, даже если на карте он ещё закрыт. Отметьте одну или несколько тем — и напишите пробную контрольную.')}</p>
+    <nav class="grades">${C.books.map(b => `<button class="grade ${b.id === S.pBook ? 'on' : ''}" data-act="pbook" data-book="${b.id}">${esc(b.subtitle)}</button>`).join('')}</nav>
+    <h2 class="p-book">${esc(book.title)}${sub(book.ru)}</h2>`;
+  for (const st of book.stories) {
+    if (st.soon) continue;
+    const done = st.lessons.filter(l => S.done[l.id]).length, on = sel.has(st.id);
+    html += `<div class="p-story ${on ? 'on' : ''}">
+      <button class="p-check" data-act="psel" data-id="${st.id}" aria-pressed="${on}">
+        <span class="box">${on ? '✓' : ''}</span>
+        <span class="p-title">${esc(st.title)}${sub(st.ru)}</span>
+        <span class="p-count">${done}/${st.lessons.length}</span></button>
+      <div class="p-lessons">${st.lessons.map(l => `<button class="p-lesson ${S.done[l.id] ? 'done' : ''}" data-act="plesson" data-id="${l.id}">
+        <span>${l.icon}</span><span>${esc(l.title)}${sub(l.ru?.title)}</span>${S.done[l.id] ? '<i>✓</i>' : ''}</button>`).join('')}</div>
+    </div>`;
+  }
+  html += `<div style="height:110px"></div></div>
+    <div class="bottom"><div class="bottom-inner">
+      <button class="btn gold" data-act="ptest" ${sel.size ? '' : 'disabled'}>📝 ${sel.size
+        ? tr(`מִבְחַן נִסָּיוֹן (${sel.size === 1 ? 'נוֹשֵׂא אֶחָד' : sel.size + ' נוֹשְׂאִים'})`, `Пробная контрольная (тем: ${sel.size})`)
+        : tr('סַמְּנוּ נוֹשְׂאִים לַמִּבְחָן', 'Отметьте темы для контрольной')}</button>
+    </div></div>`;
+  app.innerHTML = html;
+}
+
+function startTest(storyIds) {
+  const stories = storyIds.map(storyById).filter(Boolean);
+  if (!stories.length) return;
+  const per = Math.max(2, Math.floor(14 / stories.length));
+  let pool = [];
+  for (const st of stories)
+    pool.push(...shuffle(st.lessons.flatMap(l => l.tasks.filter(t => t.type !== 'match').map(t => prepTask(t, l)))).slice(0, per));
+  pool = shuffle(pool).slice(0, 15);
+  const words = shuffle(stories.flatMap(st => st.lessons.flatMap(l => l.words))).slice(0, 4);
+  const tasks = shuffle([prepTask({ type: 'match' }, { words }), ...pool]);
+  tasks.forEach((t, i) => { t._k = i; });
+  R = { kind: 'test', stories, stage: 3, queue: tasks, total: tasks.length, solved: 0, mistakes: 0,
+        missed: new Set(), from: 'practice', ui: {} };
+  renderSession();
+}
+
+function showLockedSheet(kind, id) {
+  document.getElementById('sheet')?.remove();
+  const el = document.createElement('div');
+  el.id = 'sheet'; el.className = 'sheet-wrap';
+  el.innerHTML = `<div class="sheet" role="dialog" aria-modal="true">
+    ${mascot('think')}
+    <p>${tr('הַשִּׁעוּר הַזֶּה עוֹד נָעוּל בַּמַּסְלוּל. רוֹצִים לַעֲבֹר אוֹתוֹ בְּנִפְרָד – לְמָשָׁל לִפְנֵי מִבְחָן?',
+      'Этот урок на карте ещё закрыт. Хотите пройти его отдельно — например, перед контрольной?')}</p>
+    <button class="btn" data-act="force" data-kind="${kind}" data-id="${id}">${tr('כֵּן, לַעֲבֹר עַכְשָׁיו', 'Да, пройти сейчас')}</button>
+    <button class="btn ghost" data-act="sheet-close">${tr('לֹא עַכְשָׁיו', 'Не сейчас')}</button></div>`;
+  app.appendChild(el);
 }
 
 function startChest(storyId) {
@@ -497,7 +568,7 @@ function check() {
 function afterTask() {
   const t = R.queue.shift();
   if (R.ui.ok) R.solved++;
-  else { R.mistakes++; R.queue.push(prepTask(stripPrep(t), null)); }
+  else { R.mistakes++; R.missed?.add(t._k); R.queue.push(prepTask(stripPrep(t), null)); }
   R.ui = {};
   renderSession();
 }
@@ -520,7 +591,7 @@ function matchTap(side, id) {
     if (ui.selL === ui.selR) {
       ui.matched.add(ui.selL);
     } else {
-      R.mistakes++;
+      R.mistakes++; R.missed?.add(t._k);
       const L = ui.selL, Rr = ui.selR;
       ui.selL = ui.selR = null;
       renderTask();
@@ -547,6 +618,12 @@ function finish() {
     xp = XP_LESSON + (perfect ? XP_PERFECT : 0);
     title = tr('סִיַּמְתֶּם אֶת הַשִּׁעוּר!', 'Урок пройден!');
     note = newWords ? tr(`${newWords} מִלִּים חֲדָשׁוֹת נִכְנְסוּ לַמִּלּוֹן שֶׁלִּי 📖`, `Новых слов в словаре: ${newWords} 📖`) : '';
+  } else if (R.kind === 'test') {
+    const score = R.total - R.missed.size, pct = Math.round(100 * score / R.total);
+    xp = XP_REVIEW * 3;
+    title = pct >= 80 ? tr('אַתֶּם מוּכָנִים לַמִּבְחָן! 🎉', 'Вы готовы к контрольной! 🎉') : tr('סִיַּמְתֶּם אֶת מִבְחַן הַנִּסָּיוֹן', 'Пробная контрольная пройдена');
+    note = tr(`${score} מִתּוֹךְ ${R.total} נָכוֹן כְּבָר בַּפַּעַם הָרִאשׁוֹנָה.`, `Верно с первой попытки: ${score} из ${R.total}.`)
+      + (pct < 80 ? ' ' + tr('כְּדַאי לַחֲזֹר עוֹד פַּעַם עַל הַשִּׁעוּרִים שֶׁל הַנּוֹשְׂאִים הָאֵלֶּה.', 'Стоит ещё раз пройти уроки этих тем.') : '');
   } else if (R.kind === 'chest') {
     S.chest[R.story.id] = true;
     xp = XP_CHEST + (perfect ? XP_PERFECT : 0);
@@ -563,17 +640,19 @@ function finish() {
     }
   }
   onHome = false;
+  const back = R.from === 'practice' ? 'practice' : 'home';
   S.xp += xp;
   const lit = markActive();
   save();
   app.innerHTML = `<div class="finish">${mascot('happy')}
       <h1>${title}</h1>${note ? `<p style="margin:0">${note}</p>` : ''}
       <div class="stats">
-        <div class="stat"><b>+${xp}</b><span>📜 ${tr('מְגִלּוֹת XP', 'свитки опыта')}</span></div>
+        ${R.kind === 'test' ? `<div class="stat"><b dir="ltr">${R.total - R.missed.size}/${R.total}</b><span>${tr('נָכוֹן בַּפַּעַם הָרִאשׁוֹנָה', 'верно с первой попытки')}</span></div>` : ''}
+        <div class="stat"><b dir="ltr">+${xp}</b><span>📜 ${tr('מְגִלּוֹת XP', 'свитки опыта')}</span></div>
         <div class="stat"><b>🔥 ${streakNow()}</b><span>${lit ? tr('הַרֶצֶף הִתְעַדְכֵּן!', 'серия продлена!') : tr('רֶצֶף יָמִים', 'дней подряд')}</span></div>
         ${perfect ? `<div class="stat"><b>💯</b><span>${tr('בְּלִי טָעֻיּוֹת', 'без ошибок')}</span></div>` : ''}
       </div></div>
-    <div class="bottom"><div class="bottom-inner"><button class="btn" data-act="home">${L('continue')}</button></div></div>`;
+    <div class="bottom"><div class="bottom-inner"><button class="btn" data-act="${back}">${L('continue')}</button></div></div>`;
   R = null;
 }
 
@@ -619,14 +698,21 @@ app.addEventListener('click', e => {
   const a = el.dataset.act;
   switch (a) {
     case 'go': {
-      if (!stepUnlocked(el.dataset.kind, el.dataset.id)) { toast(tr('🔒 קֹדֶם סַיְּמוּ אֶת הַשִּׁעוּרִים הַקּוֹדְמִים', '🔒 Сначала пройдите предыдущие уроки')); return; }
+      if (!stepUnlocked(el.dataset.kind, el.dataset.id)) { showLockedSheet(el.dataset.kind, el.dataset.id); return; }
       el.dataset.kind === 'lesson' ? startLesson(el.dataset.id) : startChest(el.dataset.id);
       break;
     }
     case 'home': window.scrollTo(0, 0); renderHome(); break;
     case 'jump': jumpToBook(el.dataset.book); break;
     case 'choose-lang': S.lang = el.dataset.lang; S.langChosen = true; save(); window.scrollTo(0, 0); renderHome(); break;
-    case 'quit': stopSpeech(); renderHome(); break;
+    case 'quit': { stopSpeech(); const from = R?.from; from === 'practice' ? renderPractice() : renderHome(); window.scrollTo(0, 0); break; }
+    case 'practice': renderPractice(); window.scrollTo(0, 0); break;
+    case 'pbook': S.pBook = el.dataset.book; save(); renderPractice(); break;
+    case 'psel': { const set = new Set(S.pSel || []); set.has(el.dataset.id) ? set.delete(el.dataset.id) : set.add(el.dataset.id); S.pSel = [...set]; save(); const y = window.scrollY; renderPractice(); window.scrollTo(0, y); break; }
+    case 'plesson': startLesson(el.dataset.id, 'practice'); window.scrollTo(0, 0); break;
+    case 'ptest': startTest(S.pSel || []); window.scrollTo(0, 0); break;
+    case 'force': document.getElementById('sheet')?.remove(); el.dataset.kind === 'lesson' ? startLesson(el.dataset.id) : startChest(el.dataset.id); window.scrollTo(0, 0); break;
+    case 'sheet-close': document.getElementById('sheet')?.remove(); break;
     case 'dict': renderDict(); window.scrollTo(0, 0); break;
     case 'review': startReview(); window.scrollTo(0, 0); break;
     case 'sound': S.sound = !S.sound; save(); renderDict(); break;
