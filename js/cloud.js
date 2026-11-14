@@ -4,7 +4,6 @@ import { streaks, challengeProgress, todayNumber, dateKey } from './core.js';
 import { keyOf, keyOfName, normKey } from './catalog.js';
 import * as I from './i18n.js';
 import { setServerPlus, PROMO } from './plans.js';
-import { setKidMode, kidCode, normCode, MAX_KIDS } from './kids.js';
 import { tournamentById, tourProgress, FLAG_LIMIT } from './tournaments.js';
 import { isNative, hasNativeGoogle, nativeGoogleIdToken, nativeSignOut, appUrl, bridgeCheck, pluginHasMethod } from './native.js';
 
@@ -38,8 +37,6 @@ export const social = {
   qualified: 0,        // из них засчитаны в акции (отмечали привычки 3 дня)
   promo: null,         // документ акции promo/invite2 (сколько мест занято)
   promoWon: null,      // я получил награду акции
-  kid: null,           // я — детский профиль: { parent, parentNick, nickname, assigned }
-  kids: [],            // мои дети (для родителя): [{ uid, nickname, assigned }]
   error: null,
 };
 
@@ -157,11 +154,10 @@ async function onUser(user) {
   stopListeners();
   remoteLoaded = false;
   Object.assign(social, {
-    user: user ? { uid: user.uid, email: user.email, displayName: user.displayName || '', anon: user.isAnonymous } : null,
+    user: user ? { uid: user.uid, email: user.email, displayName: user.displayName || '' } : null,
     profile: user ? undefined : null, settings: { ...DEFAULT_SETTINGS },
-    incoming: [], outgoing: [], friends: [], friendStats: {}, challenges: [], joined: [], referrals: 0, qualified: 0, promo: null, promoWon: null, kid: null, kids: [],
+    incoming: [], outgoing: [], friends: [], friendStats: {}, challenges: [], joined: [], referrals: 0, qualified: 0, promo: null, promoWon: null,
   });
-  setKidMode(false);
   setServerPlus(0);
   changed();
   if (!user) return;
@@ -187,37 +183,6 @@ async function onUser(user) {
     changed();
     if (!had && social.profile && remoteLoaded) scheduleSync(); // ник появился — обновим поиск
   }));
-
-  // Детский профиль: узнаём до первой синхронизации (от этого зависит, где искать соперников).
-  try {
-    const k = await fb.getDoc(fb.doc(db, 'kids', uid));
-    social.kid = k.exists() ? k.data() : null;
-  } catch (e) { social.kid = null; }
-  if (auth.currentUser?.uid !== uid) return;
-  setKidMode(!!social.kid);
-  let kidSeen = !!social.kid;
-  unsubs.push(fb.onSnapshot(fb.doc(db, 'kids', uid), async snap => {
-    if (snap.metadata.hasPendingWrites) return;
-    if (snap.exists()) {
-      kidSeen = true;
-      social.kid = snap.data();
-      setKidMode(true);
-      hooks.onKidAssigned?.(social.kid.assigned || []);
-    } else if (kidSeen && !snap.metadata.fromCache) {
-      // профиль исчез — проверяем на сервере, что его правда удалил родитель
-      try { if ((await fb.getDocFromServer(fb.doc(db, 'kids', uid))).exists()) return; } catch (e) { return; }
-      social.kid = null;
-      setKidMode(false);
-      hooks.onKidRemoved?.();
-    }
-    changed();
-  }, () => {}));
-  if (!user.isAnonymous) {
-    unsubs.push(fb.onSnapshot(fb.query(fb.collection(db, 'kids'), fb.where('parent', '==', uid)), snap => {
-      social.kids = snap.docs.map(d => ({ uid: d.id, ...d.data() }));
-      changed();
-    }, () => {}));
-  }
 
   // Личные привычки: при входе объединяем с тем, что уже есть на устройстве.
   const userRef = fb.doc(db, 'users', uid);
@@ -339,18 +304,15 @@ async function pushNow() {
     // Друзья видят серии и (если разрешено) настоящее имя.
     batch.set(fb.doc(db, 'stats', uid), { habits: stats, realName: showName ? realName : '', updatedAt: fb.serverTimestamp() });
     // Поиск единомышленников: только ник и серии, и только если человек согласился.
-    // Дети ищут соперников только среди детей — отдельная коллекция discoverKids.
-    const dcol = social.kid ? 'discoverKids' : 'discover';
-    batch.delete(fb.doc(db, social.kid ? 'discover' : 'discoverKids', uid));
     if (discoverable && social.profile) {
-      batch.set(fb.doc(db, dcol, uid), {
+      batch.set(fb.doc(db, 'discover', uid), {
         nickname: social.profile.nickname,
         keys: [...new Set(stats.map(s => s.key))].slice(0, 50),
         habits: stats.map(({ key, name, cur, end, best }) => ({ key, name, cur, end, best })),
         updatedAt: fb.serverTimestamp(),
       });
     } else {
-      batch.delete(fb.doc(db, dcol, uid));
+      batch.delete(fb.doc(db, 'discover', uid));
     }
     await batch.commit();
     await syncChallenges();
@@ -486,7 +448,7 @@ export async function findSimilar(perHabit = 15) {
   const keys = [...new Set(mine.map(s => s.key))].slice(0, 10);
   const people = new Map();
   await Promise.all(keys.map(async key => {
-    const snap = await fb.getDocs(fb.query(fb.collection(db, social.kid ? 'discoverKids' : 'discover'), fb.where('keys', 'array-contains', key), fb.limit(perHabit)));
+    const snap = await fb.getDocs(fb.query(fb.collection(db, 'discover'), fb.where('keys', 'array-contains', key), fb.limit(perHabit)));
     for (const d of snap.docs) {
       if (d.id === me) continue;
       const data = d.data();
@@ -706,7 +668,7 @@ export function createInvite(habitName = null, days = null, photoRequired = fals
   const code = randomCode();
   const url = `${appUrl()}?invite=${code}`;
   const saved = fb.setDoc(fb.doc(db, 'invites', code), {
-    from: social.user.uid, nickname: social.profile.nickname, kid: !!social.kid,
+    from: social.user.uid, nickname: social.profile.nickname,
     habitName, habitKey: habitName ? keyOfName(habitName) : null, days, photoRequired: !!(habitName && photoRequired),
     createdAt: fb.serverTimestamp(),
   });
@@ -721,7 +683,6 @@ export async function getInvite(code) {
 export async function acceptInvite(inv, ensureHabit) {
   const me = social.user.uid;
   if (inv.from === me) throw new Error(I.t('err.ownInvite'));
-  if (!!inv.kid !== !!social.kid) throw new Error(I.t(social.kid ? 'kid.inviteFromAdult' : 'kid.inviteFromKid'));
   const batch = fb.writeBatch(db);
   if (!social.friends.some(f => f.uid === inv.from)) {
     batch.set(fb.doc(db, 'users', me, 'friends', inv.from), { nickname: inv.nickname, since: fb.serverTimestamp(), invite: inv.code });
@@ -747,8 +708,6 @@ export async function acceptInvite(inv, ensureHabit) {
 export async function deleteAccount() {
   const user = auth.currentUser;
   const uid = user.uid;
-  for (const k of social.kids) await removeKid(k.uid).catch(() => {});   // родитель удаляет и детские профили
-  if (social.kid) await deleteKidPhotos(uid);
   const myInvites = await fb.getDocs(fb.query(fb.collection(db, 'invites'), fb.where('from', '==', uid)));
   const batch = fb.writeBatch(db);
   for (const f of social.friends) {
@@ -768,8 +727,8 @@ export async function deleteAccount() {
       for (const d of mine.docs) batch.delete(d.ref);
     } catch (e) {}
   }
-  if (social.profile && !social.kid) batch.delete(fb.doc(db, 'usernames', social.profile.nickname));
-  for (const col of ['profiles', 'stats', 'discover', 'discoverKids', 'users', 'referrals', 'pushTokens', 'kids']) batch.delete(fb.doc(db, col, uid));
+  if (social.profile) batch.delete(fb.doc(db, 'usernames', social.profile.nickname));
+  for (const col of ['profiles', 'stats', 'discover', 'users', 'referrals', 'pushTokens']) batch.delete(fb.doc(db, col, uid));
   stopListeners();
   await batch.commit();
   try {
@@ -786,92 +745,4 @@ export async function deleteAccount() {
 function providerFor(user) {
   const id = user.providerData[0]?.providerId;
   return id === 'apple.com' ? new fb.OAuthProvider('apple.com') : new fb.GoogleAuthProvider();
-}
-
-// ---------- Детский профиль ----------
-// Родитель создаёт код (kidInvites/{код}, действует 2 дня). Ребёнок вводит код или открывает ссылку:
-// приложение входит анонимно (без почты и Google-аккаунта) и создаёт детский профиль с вымышленным именем.
-// Родитель и ребёнок сразу становятся друзьями.
-
-export async function createKidInvite() {
-  if (social.kids.length >= MAX_KIDS) throw new Error(I.t('kid.tooMany', { n: MAX_KIDS }));
-  const code = kidCode();
-  await fb.setDoc(fb.doc(db, 'kidInvites', code), { parent: social.user.uid, parentNick: social.profile.nickname, createdAt: fb.serverTimestamp() });
-  return { code, url: `${appUrl()}?kid=${code}` };
-}
-
-export async function joinAsKid(rawCode, nickname) {
-  const code = normCode(rawCode);
-  if (code.length !== 8) throw new Error(I.t('kid.badCode'));
-  if (auth.currentUser && !auth.currentUser.isAnonymous) throw new Error(I.t('kid.signOutFirst'));
-  if (!auth.currentUser) await fb.signInAnonymously(auth);
-  const uid = auth.currentUser.uid;
-  let d = null, ref = fb.doc(db, 'kidInvites', code);
-  try { const inv = await fb.getDoc(ref); d = inv.exists() ? inv.data() : null; } catch (e) {}
-  const fresh = d && d.createdAt && Date.now() - d.createdAt.toMillis() < 2 * 86400000;
-  if (!d || !fresh || (d.usedBy && d.usedBy !== uid)) throw new Error(I.t('kid.badCode'));
-  const batch = fb.writeBatch(db);
-  batch.update(ref, { usedBy: uid });
-  batch.set(fb.doc(db, 'kids', uid), { parent: d.parent, parentNick: d.parentNick || '', nickname, code, createdAt: fb.serverTimestamp(), assigned: [] });
-  batch.set(fb.doc(db, 'profiles', uid), { nickname, kid: true });
-  batch.set(fb.doc(db, 'users', uid, 'friends', d.parent), { nickname: d.parentNick || '', since: fb.serverTimestamp(), kidLink: true });
-  batch.set(fb.doc(db, 'users', d.parent, 'friends', uid), { nickname, since: fb.serverTimestamp(), kidLink: true });
-  await batch.commit();
-  social.kid = { parent: d.parent, parentNick: d.parentNick, nickname, assigned: [] };
-  social.profile = { nickname, kid: true };
-  setKidMode(true);
-  changed();
-  await pushNow();
-}
-
-// Код не подошёл — убираем пустой анонимный вход.
-export async function cancelKidJoin() {
-  const u = auth.currentUser;
-  if (u?.isAnonymous && !social.kid) { try { await fb.deleteUser(u); } catch (e) { await fb.signOut(auth); } }
-}
-
-export async function assignHabit(kidUid, name, photo = false) {
-  name = String(name || '').trim().slice(0, 60);
-  if (!name) return;
-  await fb.updateDoc(fb.doc(db, 'kids', kidUid), { assigned: fb.arrayUnion({ name, at: Date.now(), photo: !!photo }) });
-}
-
-// Фото-отчёт ребёнка по заданию от родителя (task — метка задания). Видят только ребёнок и родитель, 7 дней.
-export async function addTaskPhoto(task, name, image) {
-  const uid = social.user.uid;
-  const today = todayNumber();
-  const day = String(today);
-  await fb.setDoc(fb.doc(db, 'kids', uid, 'photos', `${day}_${task}`), {
-    day, task, name: String(name).slice(0, 80), image, createdAt: fb.serverTimestamp(), expires: today + 7,
-  });
-}
-
-// Родитель: фото-отчёты ребёнка (старые удаляются).
-export async function loadKidPhotos(kidUid) {
-  const snap = await fb.getDocs(fb.collection(db, 'kids', kidUid, 'photos'));
-  const today = todayNumber();
-  const out = [];
-  for (const d of snap.docs) {
-    const p = d.data();
-    if (p.expires < today) fb.deleteDoc(d.ref).catch(() => {});
-    else out.push({ id: d.id, ...p });
-  }
-  return out.sort((a, b) => Number(b.day) - Number(a.day));
-}
-
-async function deleteKidPhotos(kidUid) {
-  try {
-    const snap = await fb.getDocs(fb.collection(db, 'kids', kidUid, 'photos'));
-    await Promise.all(snap.docs.map(d => fb.deleteDoc(d.ref)));
-  } catch (e) {}
-}
-
-export async function removeKid(kidUid) {
-  const me = social.user.uid;
-  await deleteKidPhotos(kidUid);
-  const batch = fb.writeBatch(db);
-  for (const col of ['kids', 'profiles', 'discoverKids', 'stats', 'users']) batch.delete(fb.doc(db, col, kidUid));
-  batch.delete(fb.doc(db, 'users', me, 'friends', kidUid));
-  batch.delete(fb.doc(db, 'users', kidUid, 'friends', me));
-  await batch.commit();
 }

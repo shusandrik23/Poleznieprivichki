@@ -2,7 +2,6 @@
 import { dayNumber } from './core.js';
 import { lang, t } from './i18n.js';
 import { catalogName } from './catalog.js';
-import { isKidMode, KID_WEEKLY, kidAllowed } from './kids.js';
 
 // Каждый понедельник автоматически стартует турнир недели (7 дней). Привычки (коды из js/catalog.js) идут по кругу.
 export const WEEKLY_HABITS = [
@@ -28,33 +27,28 @@ const JOIN_GRACE = 1;           // присоединиться можно до 
 // Понедельник недели, в которую входит день n (день 0 — четверг 1 января 1970).
 export function mondayOf(n) { return n - ((n - 4) % 7 + 7) % 7; }
 
-// Детские турниры — отдельные (id начинается с 'kids-'): дети соревнуются только с детьми.
-function weekly(startDay, kid = false) {
-  const list = kid ? KID_WEEKLY : WEEKLY_HABITS;
-  const cid = list[Math.floor(startDay / 7) % list.length];
-  return { id: (kid ? 'kids-w' : 'w') + startDay, kind: 'weekly', title: t('tour.weeklyTitle'), cid, habit: catalogName(cid), habitKey: 'c:' + cid,
+function weekly(startDay) {
+  const cid = WEEKLY_HABITS[Math.floor(startDay / 7) % WEEKLY_HABITS.length];
+  return { id: 'w' + startDay, kind: 'weekly', title: t('tour.weeklyTitle'), cid, habit: catalogName(cid), habitKey: 'c:' + cid,
     startDay, days: 7, text: t('tour.weeklyText') };
 }
 
-function special(s, kid = false) {
-  return { id: (kid ? 'kids-' : '') + s.id, kind: 'special', title: s.title[lang], text: s.text[lang], cid: s.habit, habit: catalogName(s.habit),
+function special(s) {
+  return { id: s.id, kind: 'special', title: s.title[lang], text: s.text[lang], cid: s.habit, habit: catalogName(s.habit),
     habitKey: 'c:' + s.habit, startDay: dayNumber(s.start), days: s.days };
 }
 
 export function tournamentById(id) {
   if (/^w\d+$/.test(id)) return weekly(Number(id.slice(1)));
-  if (/^kids-w\d+$/.test(id)) return weekly(Number(id.slice(6)), true);
-  const kid = id.startsWith('kids-');
-  const s = SPECIAL.find(x => x.id === (kid ? id.slice(5) : id));
-  return s && (!kid || kidAllowed(s.habit)) ? special(s, kid) : null;
+  const s = SPECIAL.find(x => x.id === id);
+  return s ? special(s) : null;
 }
 
 // Турниры, которые стоит показать сегодня: текущий и следующий недельные плюс ближайшие особые.
 export function tournamentsAround(today) {
   const mon = mondayOf(today);
-  const kid = isKidMode();
-  const list = [weekly(mon, kid), weekly(mon + 7, kid)];
-  for (const s of SPECIAL.filter(x => !kid || kidAllowed(x.habit)).map(x => special(x, kid))) {
+  const list = [weekly(mon), weekly(mon + 7)];
+  for (const s of SPECIAL.map(special)) {
     if (today <= s.startDay + s.days && s.startDay - today <= SHOW_SPECIAL_BEFORE) list.push(s);
   }
   return list.sort((a, b) => a.startDay - b.startDay);

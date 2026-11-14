@@ -54,17 +54,6 @@ export const HABITS = {
   write_ideas:      { e: '🗒️', ru: 'Записать 3 идеи', en: 'Write down 3 ideas' },
   reflect:          { e: '🔁', ru: 'Подвести итоги дня', en: 'Reflect on your day' },
   deep_work:        { e: '🎯', ru: 'Час без отвлечений на важное дело', en: 'One focused hour on what matters' },
-  // Детские (показываются в детском профиле, раздел «Для детей»)
-  brush_teeth:      { e: '🪥', ru: 'Почистить зубы утром и вечером', en: 'Brush teeth morning and evening' },
-  homework:         { e: '📚', ru: 'Сделать уроки', en: 'Do homework' },
-  pack_bag:         { e: '🎒', ru: 'Собрать портфель с вечера', en: 'Pack my school bag the night before' },
-  tidy_toys:        { e: '🧸', ru: 'Убрать игрушки', en: 'Put away my toys' },
-  help_home:        { e: '🏠', ru: 'Помочь по дому', en: 'Help at home' },
-  play_outside:     { e: '⚽', ru: 'Поиграть на улице', en: 'Play outside' },
-  screen_limit:     { e: '🎮', ru: 'Не больше часа игр и мультиков', en: 'Max 1 hour of games and cartoons' },
-  practice:         { e: '🎹', ru: 'Позаниматься музыкой или спортом', en: 'Practice music or a sport' },
-  draw:             { e: '🎨', ru: 'Порисовать', en: 'Draw something' },
-  bed_on_time:      { e: '🌙', ru: 'Лечь спать вовремя', en: 'Go to bed on time' },
 };
 
 export const CATEGORIES = [
