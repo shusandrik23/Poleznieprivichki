@@ -164,7 +164,7 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
       const area = h('textarea', { class: 'input', rows: isPair ? 2 : 4, placeholder: isPair ? 'Ответ партнёра (по желанию)' : 'Твой ответ (по желанию)', value: st.key ? (S.data.fields[st.key] || '') : '' });
       currentArea = area;
       const commit = () => { const v = area.value; if (st.key) S.data.fields[st.key] = v.trim(); logAnswer(txt, v); };
-      const feelBtn = st.feel && h('button', { class: 'btn soft', onclick: () => pickFeelings() }, '💗 Не могу назвать — Таблица чувств');
+      const feelBtn = st.feel && h('button', { class: 'btn soft', onclick: () => pickFeelings() }, '💗 Трудно назвать — открыть Таблицу чувств');
       primary = () => { commit(); next(); };
       const quick = st.quick && h('div', { class: 'chips quick no-tap' }, st.quick.map(q => h('button', { class: 'chip big', style: { '--c': '#5b6ee1' }, onclick: () => {
         vibrate(20);

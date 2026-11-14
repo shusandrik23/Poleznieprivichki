@@ -27,7 +27,7 @@ function home() {
   const bDone = activeB.filter(b => (b.days[today] || 0) >= (b.target || 30)).length;
   app.replaceChildren(h('div', { class: 'page home' },
     h('header', { class: 'top' },
-      h('div', null, h('h1', null, 'Внутренний компас'), h('p', { class: 'muted tagline' }, '11 техник ТВП для проработки эмоций, страхов и целей')),
+      h('div', null, h('h1', null, 'Внутренний компас'), h('p', { class: 'muted tagline' }, '11 практик для проработки эмоций, страхов и целей')),
       h('a', { class: 'icon-btn', href: '#/settings', 'aria-label': 'Настройки' }, '⚙️')),
     h('a', { class: 'sos', href: '#/run/tablet/guide/sos' },
       h('span', { class: 'sos-badge' }, 'SOS'),
@@ -143,7 +143,7 @@ function feelingsPage() {
   const sel = new Set();
   app.replaceChildren(h('div', { class: 'page' }, backBtn(),
     h('h1', null, '💗 Таблица чувств'),
-    h('p', { class: 'muted' }, `Таблица чувств из «Техник ТВП»: ${TOTAL} чувств, мыслей и состояний в 5 кластерах. Вызывается кнопкой 💗 на любом шаге практики, если трудно назвать, что ты чувствуешь.`),
+    h('p', { class: 'muted' }, `${TOTAL} чувств, мыслей и состояний в 5 цветовых группах. Вызывается кнопкой 💗 на любом шаге практики, если трудно назвать, что ты чувствуешь.`),
     feelingsGrid(sel, w => (sel.has(w) ? sel.delete(w) : sel.add(w)))));
 }
 
@@ -201,7 +201,7 @@ function about(first) {
       h('li', null, 'Глубокие практики с закрытыми глазами не выполняйте за рулём и в местах, где нужно внимание.'),
       h('li', null, 'Вы можете остановить любую практику в любой момент — кнопкой ✕.'),
       h('li', null, '🔒 Все записи хранятся только на вашем устройстве и никуда не отправляются. Сделать резервную копию можно в настройках.')),
-    h('p', { class: 'muted source' }, 'Техники — по материалам «Техники ТВП» (Трансцендентная Ведическая Психология, Владимир Древс).'));
+    h('p', { class: 'muted source' }, 'Практики основаны на подходе ТВП (Трансцендентная Ведическая Психология); тексты пересказаны своими словами.'));
   if (first) {
     const close = modal(h('div', null, body, h('button', { class: 'btn primary wide', onclick: () => { store.set('agreed', 1); close(); } }, 'Понятно')), { title: 'Добро пожаловать', onClose: () => store.set('agreed', 1) });
     return;
