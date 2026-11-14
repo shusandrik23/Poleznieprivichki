@@ -15,9 +15,9 @@ export const TYPES = {
 export const LEVELS = ['Родители', 'Род', 'Народ', 'Человечество', 'Природа', 'Вселенная', 'Бог'];
 export const SPHERES = ['Здоровье и тело', 'Отношения и семья', 'Деньги', 'Дело и работа', 'Развитие', 'Духовность'];
 export const PRESETS = {
-  matrix:  { tools: ['me', 'block', 'root', 'well'], flip: false, title: 'Матрица решений' },
-  quantum: { tools: ['i1', 'i2', 'block', 'root', 'well', 'me'], flip: true, title: 'Квантовый переход' },
-  rod:     { tools: [], fixed: true, title: 'Сила рода и единства' },
+  causes:  { tools: ['me', 'block', 'root', 'well'], flip: false, title: 'Карта причин' },
+  future:  { tools: ['i1', 'i2', 'block', 'root', 'well', 'me'], flip: true, title: 'Я завтрашний' },
+  rod:     { tools: [], fixed: true, title: 'Корни и крона' },
 };
 
 const W = 1000, H = 1300, NS = 'http://www.w3.org/2000/svg';
@@ -47,8 +47,8 @@ function mapMarkup(map, { ink = 'currentColor', sel = null, current = -1 } = {})
     const A = P(a), B = P(b);
     s += `<line x1="${A.x}" y1="${A.y}" x2="${B.x}" y2="${B.y}" stroke="${color}" stroke-width="${w}" opacity="${op}" ${dash ? 'stroke-dasharray="10 10"' : ''}/>`;
   };
-  if (map.preset === 'matrix') { line(one('me'), one('goal'), false, '#3aa76d', 5, 0.6); }
-  if (map.preset === 'quantum') { line(one('i1'), one('i2'), false, '#e8a33a', 5, 0.6); by('sphere').forEach(sp => line(sp, one('i2'), false, '#9b6bd6', 2, 0.4)); }
+  if (map.preset === 'causes') { line(one('me'), one('goal'), false, '#3aa76d', 5, 0.6); }
+  if (map.preset === 'future') { line(one('i1'), one('i2'), false, '#e8a33a', 5, 0.6); by('sphere').forEach(sp => line(sp, one('i2'), false, '#9b6bd6', 2, 0.4)); }
   by('block').forEach(b => line(b, one('root'), true, '#8c2f39', 2, 0.5));
   if (map.preset === 'rod') {
     const chain = [one('me'), ...by('level')];

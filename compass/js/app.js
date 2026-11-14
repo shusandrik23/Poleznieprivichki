@@ -27,17 +27,17 @@ function home() {
   const bDone = activeB.filter(b => (b.days[today] || 0) >= (b.target || 30)).length;
   app.replaceChildren(h('div', { class: 'page home' },
     h('header', { class: 'top' },
-      h('div', null, h('h1', null, 'Внутренний компас'), h('p', { class: 'muted tagline' }, '11 практик для проработки эмоций, страхов и целей')),
+      h('div', null, h('h1', null, 'Таблетка от всего'), h('p', { class: 'muted tagline' }, '11 практик для проработки эмоций, страхов и целей')),
       h('a', { class: 'icon-btn', href: '#/settings', 'aria-label': 'Настройки' }, '⚙️')),
-    h('a', { class: 'sos', href: '#/run/tablet/guide/sos' },
+    h('a', { class: 'sos', href: '#/run/stop/guide/sos' },
       h('span', { class: 'sos-badge' }, 'SOS'),
-      h('span', null, h('b', null, 'Скорая помощь'), h('small', null, 'Паника, ярость, обида — вернуть контроль за 2–3 минуты. Спокойный голос проведёт по 6 шагам.'))),
-    h('a', { class: 'sos-alt', href: '#/run/tablet/solo' }, '🔇 Без звука — крупные карточки'),
+      h('span', null, h('b', null, 'SOS · Стоп-кран'), h('small', null, 'Паника, ярость, обида — вернуть контроль за 2–3 минуты. Спокойный голос проведёт по 6 шагам.'))),
+    h('a', { class: 'sos-alt', href: '#/run/stop/solo' }, '🔇 Без звука — крупные карточки'),
     h('a', { class: 'card wizard-card', href: '#/wizard' },
       h('span', { class: 'big-ic' }, '🧭'),
       h('span', null, h('b', null, 'Подобрать практику'), h('small', { class: 'muted' }, 'Выберите свой запрос — приложение предложит нужную технику'))),
     h('div', { class: 'tiles' },
-      tile('#/course', '🔁', 'Курс привычек', cs ? (cs.over ? 'Курс завершён' : `День ${cs.day} из 14${cs.todayDone ? ' · ✓' : ''}`) : '14 вечеров'),
+      tile('#/course', '🔁', 'Новый сценарий', cs ? (cs.over ? 'Курс завершён' : `День ${cs.day} из 14${cs.todayDone ? ' · ✓' : ''}`) : '14 вечеров'),
       tile('#/beliefs', '📅', 'Закрепление', activeB.length ? `Сегодня ${bDone}/${activeB.length}` : 'Утренние повторения'),
       tile('#/feelings', '💗', 'Таблица чувств', `${TOTAL} чувств и состояний`),
       tile('#/journal', '📖', 'Журнал', `${sessions.all().length} записей`)),
@@ -83,7 +83,7 @@ function detail(id) {
   app.replaceChildren(h('div', { class: 'page' }, backBtn(),
     h('div', { class: 'tech-head', style: { '--c': t.color } },
       h('span', { class: 'tech-ic xl' }, t.icon),
-      h('div', null, h('h1', null, t.name), h('small', { class: 'muted' }, `Техника ${t.n} · в оригинале: ${t.orig} · ${t.duration}`))),
+      h('div', null, h('h1', null, t.name), h('small', { class: 'muted' }, `Практика ${t.n} · ${t.duration}`))),
     h('p', null, t.about),
     t.heavy && h('div', { class: 'hint warn' }, 'Затрагивает тяжёлые переживания. Лучше проходить, когда есть время и силы, а после — побыть в покое. Приложение не заменяет психотерапевта.'),
     h('h2', null, 'Как будете проходить?'),
@@ -175,9 +175,9 @@ function settingsPage() {
       h('h3', null, '🔒 Данные'),
       h('p', { class: 'muted small' }, 'Всё хранится только в памяти этого браузера. Если очистить данные браузера или сменить телефон — записи пропадут. Сделайте резервную копию.'),
       h('div', { class: 'row wrap' },
-        h('button', { class: 'btn soft', onclick: () => download(new Blob([JSON.stringify({ app: 'vnutrenniy-kompas', v: 1, at: Date.now(), data: store.dump() })], { type: 'application/json' }), `kompas-backup-${dayKey()}.json`) }, '⬇ Резервная копия'),
+        h('button', { class: 'btn soft', onclick: () => download(new Blob([JSON.stringify({ app: 'tabletka-ot-vsego', v: 1, at: Date.now(), data: store.dump() })], { type: 'application/json' }), `tabletka-backup-${dayKey()}.json`) }, '⬇ Резервная копия'),
         h('label', { class: 'btn soft' }, '⬆ Восстановить', h('input', { type: 'file', accept: 'application/json,.json', hidden: true, onchange: async e => {
-          try { const j = JSON.parse(await e.target.files[0].text()); if (j.app !== 'vnutrenniy-kompas') throw 0; if (!(await confirmBox('Заменить текущие данные данными из файла?', { ok: 'Восстановить' }))) return; store.wipe(); store.load(j.data); toast('Восстановлено'); applyTheme(); settingsPage(); }
+          try { const j = JSON.parse(await e.target.files[0].text()); if (j.app !== 'tabletka-ot-vsego') throw 0; if (!(await confirmBox('Заменить текущие данные данными из файла?', { ok: 'Восстановить' }))) return; store.wipe(); store.load(j.data); toast('Восстановлено'); applyTheme(); settingsPage(); }
           catch { toast('Это не файл резервной копии'); }
         } })),
         h('button', { class: 'btn danger', onclick: async () => { if (await confirmBox('Удалить все записи, дневники, карты и настройки с этого устройства? Это нельзя отменить.', { ok: 'Удалить всё', danger: true })) { store.wipe(); toast('Все данные удалены'); location.hash = '#/'; } } }, 'Удалить всё'))),

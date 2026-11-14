@@ -19,7 +19,7 @@ export async function scheduleReminder(ask = false) {
     if (cur && !cur.entries[dayKey()]) {
       const reg = await navigator.serviceWorker?.getRegistration();
       const opts = { body: 'Время вечернего дневника — 10–15 минут для себя.', icon: 'icons/icon-192.png', tag: 'diary', data: { url: '#/course' } };
-      try { reg ? reg.showNotification('🌙 Перезапись привычек', opts) : new Notification('🌙 Перезапись привычек', opts); } catch {}
+      try { reg ? reg.showNotification('🌙 Новый сценарий', opts) : new Notification('🌙 Новый сценарий', opts); } catch {}
     }
     scheduleReminder();
   }, Math.min(at - now, 2 ** 31 - 1));

@@ -1,4 +1,4 @@
-// «Перезапись привычек»: 14-дневный вечерний дневник, трекер, счётчик формулы, напоминания
+// «Новый сценарий» (избавление от привычек): 14-дневный вечерний дневник, трекер, счётчик формулы, напоминания
 import { h, toast, confirmBox, download } from './ui.js';
 import { store, dayKey, addDays, daysBetween, settings, fmtDate } from './store.js';
 import { openFeelings, chip } from './feelings.js';
@@ -35,7 +35,7 @@ function setup(root, back) {
   renderChips();
   root.replaceChildren(h('div', { class: 'page' },
     back(),
-    h('h1', null, '🔁 Перезапись привычек'),
+    h('h1', null, '🔁 Новый сценарий'),
     h('p', { class: 'muted' }, 'Помогает освободиться от зависимостей и привязанностей: алкоголь, сигареты, кофе, сладкое, игры, работа без остановки, покупки. Делается самостоятельно — не меньше 14 вечеров по 10–15 минут перед сном.'),
     h('div', { class: 'hint' }, 'Ежедневные записи закладывают новые привычные реакции и ослабляют старые. Со временем уму самому надоест идти на поводу у привычки — ведь каждый вечер придётся о ней писать.'),
     h('div', { class: 'card' },
@@ -164,9 +164,9 @@ function icsDownload(c, title) {
   const [hh, mm] = (c.remind || '21:30').split(':');
   const d = c.start.replace(/-/g, '');
   const now = new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z';
-  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Vnutrenniy kompas//RU', 'BEGIN:VEVENT',
-    `UID:course-${d}@kompas.local`, `DTSTAMP:${now}`, `DTSTART:${d}T${hh}${mm}00`, 'DURATION:PT15M', 'RRULE:FREQ=DAILY;COUNT=14',
-    `SUMMARY:🌙 ППП: ${title}`, 'DESCRIPTION:10–15 минут перед сном: дневник и формула самонастроя 20–50 раз.',
+  const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Tabletka ot vsego//RU', 'BEGIN:VEVENT',
+    `UID:course-${d}@tabletka.local`, `DTSTAMP:${now}`, `DTSTART:${d}T${hh}${mm}00`, 'DURATION:PT15M', 'RRULE:FREQ=DAILY;COUNT=14',
+    `SUMMARY:🌙 Новый сценарий: ${title}`, 'DESCRIPTION:10–15 минут перед сном: дневник и формула самонастроя 20–50 раз.',
     'BEGIN:VALARM', 'TRIGGER:PT0M', 'ACTION:DISPLAY', 'DESCRIPTION:Вечерний дневник', 'END:VALARM', 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
   download(new Blob([ics], { type: 'text/calendar' }), 'dnevnik-privychki.ics');
 }
