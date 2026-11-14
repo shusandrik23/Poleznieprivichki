@@ -82,7 +82,7 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
   const head = h('header', { class: 's-head' },
     h('button', { class: 'icon-btn', 'aria-label': 'Выйти', onclick: exit }, '✕'),
     titleEl,
-    h('button', { class: 'icon-btn', title: 'Справочник чувств', 'aria-label': 'Справочник чувств', onclick: () => pickFeelings() }, '💗'),
+    h('button', { class: 'icon-btn', title: 'Таблица чувств', 'aria-label': 'Таблица чувств', onclick: () => pickFeelings() }, '💗'),
     isGuide && h('button', { class: 'icon-btn', title: 'Повторить', 'aria-label': 'Повторить фразу', onclick: () => sayCurrent() }, '🔁'));
   const wrap = h('div', { class: `session mode-${mode}` }, head, body, foot);
   root.replaceChildren(wrap);
@@ -122,7 +122,7 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
       h('button', { class: 'btn primary', disabled, onclick: onNext }, nextLabel));
   }
   // В режиме гида: весь экран — зона касания «дальше»
-  function guideTap(onTap, label = 'Коснитесь экрана, когда будете готовы') {
+  function guideTap(onTap, label = 'Коснись экрана, когда будешь готов(а)') {
     const zone = h('div', { class: 'tap-zone', role: 'button', tabindex: 0, onclick: e => { if (e.target.closest('button,textarea,input,a,.no-tap')) return; vibrate(25); onTap(); } },
       h('div', { class: 'tap-hint' }, '👆 ' + label));
     return zone;
@@ -161,18 +161,23 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
     ask(st, my) {
       const txt = T(st.text);
       currentText = txt;
-      const area = h('textarea', { class: 'input', rows: isPair ? 2 : 4, placeholder: isPair ? 'Ответ партнёра (по желанию)' : 'Ваш ответ (по желанию)', value: st.key ? (S.data.fields[st.key] || '') : '' });
+      const area = h('textarea', { class: 'input', rows: isPair ? 2 : 4, placeholder: isPair ? 'Ответ партнёра (по желанию)' : 'Твой ответ (по желанию)', value: st.key ? (S.data.fields[st.key] || '') : '' });
       currentArea = area;
       const commit = () => { const v = area.value; if (st.key) S.data.fields[st.key] = v.trim(); logAnswer(txt, v); };
-      const feelBtn = st.feel && h('button', { class: 'btn soft', onclick: () => pickFeelings() }, '💗 Не могу назвать — Справочник чувств');
+      const feelBtn = st.feel && h('button', { class: 'btn soft', onclick: () => pickFeelings() }, '💗 Не могу назвать — Таблица чувств');
       primary = () => { commit(); next(); };
+      const quick = st.quick && h('div', { class: 'chips quick no-tap' }, st.quick.map(q => h('button', { class: 'chip big', style: { '--c': '#5b6ee1' }, onclick: () => {
+        vibrate(20);
+        if (st.single) { area.value = q; commit(); next(); return; }
+        area.value = (area.value.trim() ? area.value.trim() + ', ' : '') + q; area.dispatchEvent(new Event('input'));
+      } }, q)));
       if (isGuide) {
         const writeToggle = h('details', { class: 'no-tap write-box', open: !!st.belief || undefined }, h('summary', null, '✍️ Записать ответ'), area);
-        put(body, mainText(st, txt), feelBtn, writeToggle, guideTap(primary, st.belief ? 'Запишите и коснитесь экрана' : 'Ответьте про себя или вслух — и коснитесь экрана'));
+        put(body, mainText(st, txt), quick, feelBtn, writeToggle, guideTap(primary, st.belief ? 'Запиши и коснись экрана' : 'Ответь про себя или вслух — и коснись экрана'));
         footer('Дальше', primary);
         speak(txt);
       } else {
-        put(body, pairLabel(), mainText(st, txt), hintEl(st), feelBtn, isPair && !st.key && !st.belief ? h('details', { class: 'write-box' }, h('summary', null, '✍️ Записать ответ партнёра'), area) : area);
+        put(body, pairLabel(), mainText(st, txt), hintEl(st), quick, feelBtn, isPair && !st.key && !st.belief ? h('details', { class: 'write-box' }, h('summary', null, '✍️ Записать ответ партнёра'), area) : area);
         footer('Далее', primary);
       }
     },
@@ -204,7 +209,7 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
       put(body, pairLabel(), h('div', { class: 'q big' }, txt), hintEl(st), btns, h('div', { class: 'scale-legend muted small' }, h('span', null, '1 — слабо'), h('span', null, '10 — очень сильно')));
       primary = next;
       footer(val ? 'Далее' : 'Пропустить', next);
-      if (isGuide) speak(txt + ' Выберите число на экране.');
+      if (isGuide) speak(txt + ' Выбери число на экране.');
     },
     timer(st, my) {
       const txt = T(st.text);
@@ -229,7 +234,7 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
       put(body, pairLabel(), mainText(st, txt), hintEl(st), ring, ctl, isPair && h('p', { class: 'muted small center' }, 'Дайте партнёру время. Таймер подаст мягкий сигнал.'));
       primary = next;
       if (isGuide) {
-        add(body, guideTap(next, 'Коснитесь, чтобы не ждать таймер'));
+        add(body, guideTap(next, 'Коснись, чтобы не ждать таймер'));
         footer('Дальше');
         speak(txt).then(() => { if (my === rtoken) start(); });
       } else footer();
@@ -246,7 +251,7 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
     canvas(st) {
       const txt = T(st.text);
       currentText = txt;
-      const editor = mapEditor(S.data.map, { compact: !st.final, title: tech.name + (S.data.fields.goal ? ' · ' + S.data.fields.goal : '') });
+      const editor = mapEditor(S.data.map, { compact: !st.final, tools: st.tools, tag: st.tag, title: tech.name + (S.data.fields.goal ? ' · ' + S.data.fields.goal : '') });
       put(body, pairLabel(), h('div', { class: 'q' }, txt), hintEl(st), editor);
       primary = () => { const err = st.need && st.need(S); if (err) { toast(err); if (isGuide) speak(err); return; } next(); };
       footer(st.final ? 'Далее' : 'Готово', primary);
@@ -269,11 +274,11 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
         S.data.timeline = stops.length ? { age: +inp.value, stops } : null;
         put(view, stops.length
           ? h('div', null, h('p', { class: 'muted small' }, 'Остановки: ' + stops.join(' → ') + ' лет'), timelineView(stops, {}))
-          : h('p', { class: 'muted small' }, 'Введите возраст от 8 лет.'));
+          : h('p', { class: 'muted small' }, 'Введи возраст от 8 лет.'));
       };
       inp.addEventListener('input', upd); upd();
       put(body, h('div', { class: 'q' }, txt), inp, view);
-      primary = () => { if (!S.data.timeline) return toast('Введите возраст'); next(); };
+      primary = () => { if (!S.data.timeline) return toast('Введи возраст'); next(); };
       footer('Далее', primary);
       if (isGuide) speak(txt);
     },
@@ -290,14 +295,19 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
       const txt = T(st.text);
       currentText = txt;
       const paper = S.data.fields.format === 'paper';
-      const area = h('textarea', { class: 'input letter', rows: 9, placeholder: 'Пишите, не исправляя…', value: S.data.fields[st.key] || '' });
+      const area = h('textarea', { class: 'input letter', rows: 9, placeholder: 'Пиши, не исправляя…', value: st.append ? '' : (S.data.fields[st.key] || '') });
       currentArea = paper ? null : area;
-      const commit = () => { if (!paper) S.data.fields[st.key] = area.value.trim(); };
+      const commit = () => {
+        if (paper) return;
+        const v = area.value.trim();
+        if (st.append) { if (v) S.data.fields[st.key] = (S.data.fields[st.key] ? S.data.fields[st.key] + '\n\n' : '') + v; logAnswer(txt, v); }
+        else S.data.fields[st.key] = v;
+      };
       put(body, mainText(st, txt));
       if (!paper) add(body, area);
       // Таймер на шаг письма (необязательный)
       const holder = h('div', { class: 'write-timer' });
-      add(body, holder, h('button', { class: 'btn soft', onclick: () => pickFeelings() }, '💗 Справочник чувств'));
+      add(body, holder, h('button', { class: 'btn soft', onclick: () => pickFeelings() }, '💗 Таблица чувств'));
       let left = st.sec, iv;
       const lbl = h('span');
       const show = () => { lbl.textContent = `⏱ ${Math.floor(left / 60)}:${String(left % 60).padStart(2, '0')}`; };
@@ -307,13 +317,13 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
       cleanup.push(() => clearInterval(iv));
       primary = () => { commit(); next(); };
       footer('Далее', primary);
-      if (isGuide) speak(st.title + '. ' + txt).then(() => { if (my === rtoken) { run(); holder.querySelector('button')?.remove(); } });
+      if (isGuide) speak((st.title ? T(st.title) + '. ' : '') + txt).then(() => { if (my === rtoken) { run(); holder.querySelector('button')?.remove(); } });
     },
     burn(st) {
       const txt = T(st.text);
       currentText = txt;
       const src = (st.source ? st.source(S) : '') || '';
-      const area = h('textarea', { class: 'input', rows: 5, placeholder: 'Что хотите отпустить?', value: src });
+      const area = h('textarea', { class: 'input', rows: 5, placeholder: 'Что хочешь отпустить?', value: src });
       let done = false;
       const stage = h('div', { class: 'burn-stage' });
       const btn = h('button', { class: 'btn fire wide', onclick: async () => {
@@ -331,7 +341,7 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
         footer('Далее', next);
       } }, '🔥 Сжечь');
       put(body, h('div', { class: 'q' }, txt), area, stage, btn);
-      footer('Далее', () => { if (!done) return toast('Сначала нажмите «Сжечь» — или пропустите'); next(); }, { extra: [h('button', { class: 'btn ghost', onclick: next }, 'Пропустить')] });
+      footer('Далее', () => { if (!done) return toast('Сначала нажми «Сжечь» — или пропусти'); next(); }, { extra: [h('button', { class: 'btn ghost', onclick: next }, 'Пропустить')] });
       if (isGuide) speak(txt);
     },
     pct(st) {
@@ -363,7 +373,7 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
         h('div', { class: 'zone-mid' }, prompt),
         h('button', { class: 'zone zone-done', onclick: () => { vibrate([60, 50, 60]); loopDone(); } }, h('b', null, done), h('small', null, 'низ экрана'), h('span', null, '↓')));
       put(foot, h('button', { class: 'btn ghost', onclick: back }, '← Назад'), h('span', { class: 'muted small' }, `Круг ${f.count}`));
-      speak(prompt + ` Коснитесь верхней половины экрана, если есть ещё. Нижней — если больше ничего нет.`);
+      speak(prompt + ` Коснись верхней половины экрана, если есть ещё. Нижней — если больше ничего нет.`);
       stopListen = listen(cmd => { if (my !== rtoken) return; if (cmd === 'more') loopMore(); if (cmd === 'done') loopDone(); });
     } else {
       put(body, pairLabel(), h('div', { class: 'q big' }, prompt),
@@ -385,11 +395,12 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
     const { before, after } = S.data.scales;
     const belief = S.data.fields.belief;
     const kids = [h('div', { class: 'end-icon' }, '🌿'), h('h2', null, 'Практика завершена'),
-      h('p', { class: 'muted' }, 'Побудьте немного в тишине. Выпейте воды.')];
+      h('p', { class: 'muted' }, 'Побудь немного в тишине. Почувствуй своё состояние.')];
     if (before || after) kids.push(h('div', { class: 'compare' },
       before ? h('div', null, h('small', null, 'До'), h('b', null, before)) : null,
       h('span', null, '→'),
       after ? h('div', null, h('small', null, 'После'), h('b', null, after)) : null));
+    if (tech.endNote) kids.push(h('div', { class: 'hint' }, tech.endNote));
     if (belief) kids.push(h('div', { class: 'belief-card' }, h('small', null, 'Новое убеждение'), h('b', null, belief)));
     const acts = [];
     if (S.data.map && tech.preset !== 'rod' && blocksOf(S.data.map).length) acts.push(h('button', { class: 'btn soft', onclick: () => exportMap(S.data.map, tech.name).catch(() => toast('Не удалось сохранить')) }, '🖼 Сохранить карту в галерею'));
@@ -398,7 +409,7 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
     acts.push(h('button', { class: isPair ? 'btn ghost' : 'btn primary', onclick: () => { teardown(); onExit && onExit(); } }, 'Готово'));
     put(body, h('div', { class: 'end' }, kids, h('div', { class: 'col' }, acts)));
     put(foot, );
-    if (isGuide) speak('Практика завершена. Побудьте немного в тишине.');
+    if (isGuide) speak('Практика завершена. Побудь немного в тишине.');
   }
 
   function teardown() {
@@ -424,7 +435,7 @@ export function runSession(root, tech, mode, { onExit, swapped = false, skipIntr
       h('li', null, '🎧 Наденьте наушники и сядьте удобно.'),
       h('li', null, '👆 Коснитесь экрана в любом месте, чтобы перейти дальше.'),
       h('li', null, '↕️ В циклах: верх экрана — «Есть ещё», низ — «Больше ничего нет». Вибрация подтвердит выбор.'),
-      h('li', null, '💗 Справочник чувств и 🔁 повтор фразы — вверху экрана.')));
+      h('li', null, '💗 Таблица чувств и 🔁 повтор фразы — вверху экрана.')));
     if (isPair) kids.push(h('ul', { class: 'tips' },
       h('li', null, '👥 Этот экран — для ведущего. Ведомый сидит удобно, глаза закрыты.'),
       h('li', null, '🗣 Читайте крупный текст спокойно и медленно. Подсказки «Для ведущего» — только для вас.'),

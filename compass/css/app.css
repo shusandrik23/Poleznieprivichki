@@ -266,3 +266,12 @@ button.cal-cell { cursor: pointer; }
 .jscore { font-weight: 700; color: var(--accent); }
 .logrow { padding: 8px 0; border-bottom: 1px solid var(--line); }
 .about li { margin: 8px 0; }
+
+.states { margin-top: 8px; }
+.states .chips { margin-top: 4px; }
+.states .chip { border-style: dashed; }
+.quick { margin: 4px 0; }
+.sec h3 { display: flex; gap: 10px; align-items: flex-start; margin-top: 0; }
+.sec-n { flex: none; width: 26px; height: 26px; border-radius: 50%; background: var(--accent); color: #fff; font-size: 13px; display: inline-flex; align-items: center; justify-content: center; margin-top: 1px; }
+.q-small { font-weight: 400 !important; font-size: 14.5px; color: var(--muted); }
+.source { font-size: 13px; }

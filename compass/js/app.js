@@ -6,6 +6,7 @@ import { feelingsGrid, chip, TOTAL } from './feelings.js';
 import { courseScreen, courseStatus } from './course.js';
 import { beliefsScreen, beliefs } from './beliefs.js';
 import { scheduleReminder } from './remind.js';
+import { tpl } from './ppp.js';
 import { ruVoices, speak, ttsAvailable, recognitionAvailable } from './speech.js';
 import { mapPreview, exportMap, blocksOf } from './canvas.js';
 
@@ -26,7 +27,7 @@ function home() {
   const bDone = activeB.filter(b => (b.days[today] || 0) >= (b.target || 30)).length;
   app.replaceChildren(h('div', { class: 'page home' },
     h('header', { class: 'top' },
-      h('div', null, h('h1', null, 'Внутренний компас'), h('p', { class: 'muted tagline' }, '11 практик проработки эмоций, страхов и целей')),
+      h('div', null, h('h1', null, 'Внутренний компас'), h('p', { class: 'muted tagline' }, '11 техник ТВП для проработки эмоций, страхов и целей')),
       h('a', { class: 'icon-btn', href: '#/settings', 'aria-label': 'Настройки' }, '⚙️')),
     h('a', { class: 'sos', href: '#/run/tablet/guide/sos' },
       h('span', { class: 'sos-badge' }, 'SOS'),
@@ -38,7 +39,7 @@ function home() {
     h('div', { class: 'tiles' },
       tile('#/course', '🔁', 'Курс привычек', cs ? (cs.over ? 'Курс завершён' : `День ${cs.day} из 14${cs.todayDone ? ' · ✓' : ''}`) : '14 вечеров'),
       tile('#/beliefs', '📅', 'Закрепление', activeB.length ? `Сегодня ${bDone}/${activeB.length}` : 'Утренние повторения'),
-      tile('#/feelings', '💗', 'Справочник чувств', `${TOTAL} состояний`),
+      tile('#/feelings', '💗', 'Таблица чувств', `${TOTAL} чувств и состояний`),
       tile('#/journal', '📖', 'Журнал', `${sessions.all().length} записей`)),
     h('h2', null, 'Все практики'),
     h('div', { class: 'tech-list' }, TECHNIQUES.map(techRow)),
@@ -120,7 +121,7 @@ function journal() {
         h('span', { class: 'tech-txt' }, h('b', null, t.name), h('small', { class: 'muted' }, `${fmtDate(s.start)} · ${MODES[s.mode]?.name || ''}${s.done ? '' : ' · не завершено'}`)),
         sc.before || sc.after ? h('span', { class: 'jscore' }, `${sc.before ?? '–'}→${sc.after ?? '–'}`) : null);
     })) : h('div', { class: 'empty' }, 'Пока пусто. Пройдите первую практику.'),
-    store.get('courses', []).length ? h('div', null, h('h2', null, 'Архив курсов привычек'), store.get('courses', []).map(c => h('div', { class: 'card small' }, `${c.habit === 'other' ? c.custom : c.habit} · с ${fmtDate(c.start + 'T12:00')} · записей: ${Object.keys(c.entries).length}`))) : null));
+    store.get('courses', []).length ? h('div', null, h('h2', null, 'Архив курсов привычек'), store.get('courses', []).map(c => h('div', { class: 'card small' }, `${c.habit === 'other' ? c.custom : tpl(c).name} · с ${fmtDate(c.start + 'T12:00')} · записей: ${Object.keys(c.entries).length}`))) : null));
 }
 function sessionDetail(s) {
   const t = byId(s.tech) || { name: s.tech };
@@ -141,8 +142,8 @@ const LABELS = { person: 'Человек', topic: 'Тема', goal: 'Цель', 
 function feelingsPage() {
   const sel = new Set();
   app.replaceChildren(h('div', { class: 'page' }, backBtn(),
-    h('h1', null, '💗 Справочник чувств'),
-    h('p', { class: 'muted' }, `${TOTAL} эмоций и состояний в 5 кластерах. Вызывается кнопкой 💗 на любом шаге практики, если трудно назвать, что вы чувствуете.`),
+    h('h1', null, '💗 Таблица чувств'),
+    h('p', { class: 'muted' }, `Таблица чувств из «Техник ТВП»: ${TOTAL} чувств, мыслей и состояний в 5 кластерах. Вызывается кнопкой 💗 на любом шаге практики, если трудно назвать, что ты чувствуешь.`),
     feelingsGrid(sel, w => (sel.has(w) ? sel.delete(w) : sel.add(w)))));
 }
 
@@ -199,7 +200,8 @@ function about(first) {
       h('li', null, 'Если у вас тяжёлое состояние, мысли о самоповреждении или суициде — пожалуйста, обратитесь за помощью к специалисту или позвоните в экстренную службу ', h('b', null, '112'), '.'),
       h('li', null, 'Глубокие практики с закрытыми глазами не выполняйте за рулём и в местах, где нужно внимание.'),
       h('li', null, 'Вы можете остановить любую практику в любой момент — кнопкой ✕.'),
-      h('li', null, '🔒 Все записи хранятся только на вашем устройстве и никуда не отправляются. Сделать резервную копию можно в настройках.')));
+      h('li', null, '🔒 Все записи хранятся только на вашем устройстве и никуда не отправляются. Сделать резервную копию можно в настройках.')),
+    h('p', { class: 'muted source' }, 'Техники — по материалам «Техники ТВП» (Трансцендентная Ведическая Психология, Владимир Древс).'));
   if (first) {
     const close = modal(h('div', null, body, h('button', { class: 'btn primary wide', onclick: () => { store.set('agreed', 1); close(); } }, 'Понятно')), { title: 'Добро пожаловать', onClose: () => store.set('agreed', 1) });
     return;

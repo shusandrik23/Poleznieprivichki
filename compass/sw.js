@@ -1,8 +1,8 @@
 // Офлайн-режим: всё приложение кладётся в кэш при первом открытии
-const CACHE = 'kompas-v1';
+const CACHE = 'kompas-v2';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'css/app.css', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
   'js/app.js', 'js/ui.js', 'js/store.js', 'js/speech.js', 'js/feelings.js', 'js/techniques.js', 'js/engine.js',
-  'js/canvas.js', 'js/timeline.js', 'js/burn.js', 'js/beliefs.js', 'js/course.js', 'js/remind.js'];
+  'js/canvas.js', 'js/timeline.js', 'js/burn.js', 'js/beliefs.js', 'js/course.js', 'js/ppp.js', 'js/remind.js'];
 
 self.addEventListener('install', e => { e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)).then(() => self.skipWaiting())); });
 self.addEventListener('activate', e => {

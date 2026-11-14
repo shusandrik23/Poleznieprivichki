@@ -15,8 +15,8 @@ export const TYPES = {
 export const LEVELS = ['Родители', 'Род', 'Народ', 'Человечество', 'Природа', 'Вселенная', 'Бог'];
 export const SPHERES = ['Здоровье и тело', 'Отношения и семья', 'Деньги', 'Дело и работа', 'Развитие', 'Духовность'];
 export const PRESETS = {
-  matrix:  { tools: ['me', 'goal', 'block', 'root', 'well'], flip: false, title: 'Матрица решений' },
-  quantum: { tools: ['i1', 'i2', 'block', 'root', 'well', 'sphere'], flip: true, title: 'Квантовый переход' },
+  matrix:  { tools: ['me', 'block', 'root', 'well'], flip: false, title: 'Матрица решений' },
+  quantum: { tools: ['i1', 'i2', 'block', 'root', 'well', 'me'], flip: true, title: 'Квантовый переход' },
   rod:     { tools: [], fixed: true, title: 'Сила рода и единства' },
 };
 
@@ -67,6 +67,7 @@ function mapMarkup(map, { ink = 'currentColor', sel = null, current = -1 } = {})
     s += `<g data-id="${it.id}" style="cursor:pointer" opacity="${op}">`;
     if (it.type === 'well') s += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="none" stroke="${fill}" stroke-width="8"/><circle cx="${p.x}" cy="${p.y}" r="${r - 12}" fill="${fill}" opacity="${it.cleared ? 0.15 : 0.6}"/>`;
     else s += `<circle cx="${p.x}" cy="${p.y}" r="${r}" fill="${fill}" ${it.cleared ? 'opacity="0.35"' : ''}/>`;
+    if (it.cleared && it.type !== 'level') s += `<line x1="${p.x - r - 6}" y1="${p.y - r - 6}" x2="${p.x + r + 6}" y2="${p.y + r + 6}" stroke="${ink}" stroke-width="4" opacity=".7"/><line x1="${p.x + r + 6}" y1="${p.y - r - 6}" x2="${p.x - r - 6}" y2="${p.y + r + 6}" stroke="${ink}" stroke-width="4" opacity=".7"/>`;
     const inner = it.type === 'block' ? `${it.pct || 50}%` : (['me', 'i1', 'i2', 'root'].includes(it.type) ? T.label : it.type === 'level' ? String(+it.id.slice(2) + 1) : '');
     if (inner) s += `<text x="${p.x}" y="${p.y + 8}" text-anchor="middle" font-size="${inner.length > 3 ? 20 : 24}" font-weight="700" fill="#fff">${esc(inner)}</text>`;
     const lbl = it.type === 'block' || it.type === 'sphere' || it.type === 'level' || it.type === 'goal' || it.type === 'well' ? (it.label || T.label) : (it.label && it.label !== T.label ? it.label : '');
@@ -112,8 +113,9 @@ export async function exportMap(map, title) {
 }
 
 // Редактор карты. map изменяется на месте, onChange вызывается после правок.
-export function mapEditor(map, { onChange = () => {}, current = -1, compact = false, title } = {}) {
-  const preset = PRESETS[map.preset];
+export function mapEditor(map, { onChange = () => {}, current = -1, compact = false, title, tools, tag } = {}) {
+  const preset = { ...PRESETS[map.preset] };
+  if (tools) preset.tools = tools;
   let tool = preset.tools[0] || null, sel = null, drag = null;
   const svg = document.createElementNS(NS, 'svg');
   svg.setAttribute('viewBox', `0 0 ${W} ${H}`);
@@ -142,7 +144,7 @@ export function mapEditor(map, { onChange = () => {}, current = -1, compact = fa
     if (it) { it.x = m.x; it.y = m.y; }
     else {
       it = { id: nid(), type: tool, x: m.x, y: m.y, label: T.label };
-      if (tool === 'block') { it.pct = 50; it.label = 'Блокада ' + (blocksOf(map).length + 1); }
+      if (tool === 'block') { it.pct = 50; it.label = 'Блокада ' + (blocksOf(map).length + 1); if (tag) it.side = tag; }
       if (tool === 'sphere') { const used = map.items.filter(i => i.type === 'sphere').map(i => i.label); it.label = SPHERES.find(s => !used.includes(s)) || 'Сфера'; }
       map.items.push(it);
     }
@@ -173,7 +175,7 @@ export function mapEditor(map, { onChange = () => {}, current = -1, compact = fa
         }, TYPES[t].full || TYPES[t].label)))));
       const row = [];
       if (preset.flip) row.push(h('button', { class: 'btn ' + (map.flipped ? 'primary' : 'ghost'), onclick: () => { map.flipped = !map.flipped; changed(true); } }, map.flipped ? '↺ Вернуть как было' : '↻ Перевернуть на 180°'));
-      if (map.preset === 'quantum' && !map.items.some(i => i.type === 'sphere')) row.push(h('button', { class: 'btn ghost', onclick: addSpheres }, '+ 6 сфер вокруг Я2'));
+      if (false) row.push(h('button', { class: 'btn ghost', onclick: addSpheres }, '+ 6 сфер вокруг Я2'));
       if (row.length) kids.push(h('div', { class: 'row wrap' }, row));
     }
     const list = map.items.filter(i => i.type !== 'me' || map.preset !== 'rod');
