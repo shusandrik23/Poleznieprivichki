@@ -161,11 +161,13 @@ async function joinFamily(raw) {
   await fb.updateDoc(fb.doc(db, 'kidsFamilies', c.fid), { [`parents.${uid}`]: social.user.displayName?.split(' ')[0] || '' });
 }
 
-async function addKid(name, age) {
+// keepOwn — у ребёнка уже есть YouBoost Kids со своими делами: карточку создаём без привычек,
+// тогда при подключении его дела, звёзды и питомец перенесутся с телефона и ничего не потеряется.
+async function addKid(name, age, keepOwn = false) {
   const { fb, db } = h();
   const id = G.newId();
   const n = kidsList().length;
-  const habits = starterFor(age).map(code => {
+  const habits = keepOwn ? [] : starterFor(age).map(code => {
     const c = KID_HABITS.find(x => x.code === code);
     return { id: G.newId(), code, name: c[lang] || c.en, emoji: c.emoji, stars: c.stars, days: c.days ? [...c.days] : [], approval: !!c.approval, since: G.today() };
   });
@@ -247,7 +249,7 @@ function kidCard(k) {
     <div class="row-between"><div class="row"><span class="fam-avatar" style="background:${k.color}">${e(k.avatar)}</span>
       <div><b class="fam-name">${e(k.name)}</b><div class="small">${pet}${pet && best > 1 ? ' · ' : ''}${best > 1 ? `🔥 ${best}` : ''}</div></div></div>
       <span class="fam-stars">⭐ ${G.balance(k, fam.family)}</span></div>
-    <div class="small fam-today">${list.length ? t('fam.today', { done, total: list.length }) : t('fam.nothingToday')}</div>
+    <div class="small fam-today">${list.length ? t('fam.today', { done, total: list.length }) : !(k.habits || []).length && !devices ? t('fam.waitOwn') : t('fam.nothingToday')}</div>
     ${list.length ? `<div class="bar"><div class="fill" style="width:${Math.round(done / list.length * 100)}%"></div></div>
       <div class="fam-tasks">${list.map(x => `<span class="fam-task" title="${e(x.name)}">${statusIcon(G.status(k, x.id, day, x))} ${e(x.emoji)} ${e(x.name)}${x.from ? ' 📬' : ''}</span>`).join('')}</div>` : ''}`;
 
@@ -478,7 +480,9 @@ export function familyView() {
       <button class="btn small-btn" type="submit">${t('fam.save')}</button></form>
     ${fam.addKid || !kids.length ? `<form class="row" data-form="famKid"><input name="name" maxlength="24" placeholder="${t('fam.kidNamePh')}" required autocomplete="off">
       <select name="age">${[5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map(a => `<option ${a === 8 ? 'selected' : ''}>${a}</option>`).join('')}</select>
-      <button class="btn primary" type="submit">${t('fam.addKid')}</button></form>${flashHtml('kid')}`
+      <button class="btn primary" type="submit">${t('fam.addKid')}</button>
+      <label class="row small fam-keep"><input type="checkbox" name="keepOwn"> ${t('fam.keepOwn')}</label></form>
+      <p class="small">${t('fam.keepOwnHint')}</p>${flashHtml('kid')}`
       : `<button class="btn" data-fam="add-kid">＋ ${t('fam.addKidBtn')}</button>`}
     <form class="row" data-form="famName"><span class="small">${t('fam.callMe')}</span>
       <input name="label" maxlength="20" value="${e(fam.family?.parents?.[myUid()] || '')}" placeholder="${t('fam.callMePh')}">
@@ -659,7 +663,15 @@ export function familySubmit(form) {
   if (kind === 'famKid') {
     const name = String(fd.get('name') || '').trim();
     if (!name) return;
-    return act('kid', async () => { await addKid(name, Number(fd.get('age')) || 8); fam.addKid = false; form.reset(); });
+    const keepOwn = fd.get('keepOwn') === 'on';
+    return act('kid', async () => {
+      const id = await addKid(name, Number(fd.get('age')) || 8, keepOwn);
+      fam.addKid = false; form.reset();
+      if (keepOwn) {   // сразу ссылка для подключения телефона ребёнка
+        const code = await createCode('child', id);
+        fam.code = { kid: id, code, text: t('fam.kidCodeText', { name }), share: t('fam.kidInviteMsg', { name, url: `${KIDS_URL}?join=${code}`, code }) };
+      }
+    });
   }
   if (kind === 'famName') {
     const label = String(fd.get('label') || '').trim();
