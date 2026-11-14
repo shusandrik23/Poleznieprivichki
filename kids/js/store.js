@@ -9,7 +9,7 @@
 import { firebaseConfig } from '../firebase-config.js';
 import { newId, makeCode } from './logic.js';
 import * as F from './friends.js';
-import { isNative, hasNativeGoogle, nativeGoogleIdToken, nativeSignOut } from './native.js';
+import { nativeSignOut } from './native.js';
 
 const SDK = 'https://www.gstatic.com/firebasejs/10.14.1';
 const DEVICE_KEY = 'ybk-device';
@@ -209,34 +209,8 @@ export async function removeKid(id) {
 
 // ---------- Настройка устройства ----------
 
-export function setupLocal(familyName) {
-  Object.assign(S, { mode: 'local', role: 'parent', fid: 'local', family: emptyFamily(familyName), kids: {}, synced: true });
-  persistLocal();
-  saveDevice();
-  changed();
-}
-
 function assertCloud() {
   if (!S.cloudReady) throw new Error('offline');
-}
-
-async function googleSignIn() {
-  assertCloud();
-  if (S.user && !S.user.anonymous) return;
-  if (isNative) {
-    if (!hasNativeGoogle()) throw new Error('native-signin');
-    const idToken = await nativeGoogleIdToken();
-    if (!idToken) return;
-    await fb.signInWithCredential(auth, fb.GoogleAuthProvider.credential(idToken));
-  } else {
-    try {
-      await fb.signInWithPopup(auth, new fb.GoogleAuthProvider());
-    } catch (e) {
-      if (e.code === 'auth/popup-closed-by-user' || e.code === 'auth/cancelled-popup-request') return;
-      throw e;
-    }
-  }
-  await waitUser(u => u && !u.anonymous);
 }
 
 function waitUser(test, ms = 15000) {
@@ -248,44 +222,6 @@ function waitUser(test, ms = 15000) {
       setTimeout(poll, 100);
     })();
   });
-}
-
-// Родитель входит через Google: находим его семью, переносим семью с устройства или создаём новую.
-// Возвращает 'existing' | 'migrated' | 'created' | null (вход отменён).
-export async function parentSignIn(familyName = '') {
-  await googleSignIn();
-  if (!S.user || S.user.anonymous) return null;
-  const uid = S.user.uid;
-  const userSnap = await fb.getDoc(fb.doc(db, 'kidsUsers', uid));
-  let fid = userSnap.exists() ? userSnap.data().fid : null;
-  if (fid) {
-    const fam = await fb.getDoc(fb.doc(db, 'kidsFamilies', fid)).catch(() => null);
-    if (!fam || !fam.exists()) fid = null;
-  }
-  let result = 'existing';
-  if (!fid) {
-    const local = S.mode === 'local' ? { family: S.family, kids: S.kids } : null;
-    fid = fb.doc(fb.collection(db, 'kidsFamilies')).id;
-    const batch = fb.writeBatch(db);
-    const family = { ...(local?.family || emptyFamily(familyName)), owner: uid, parents: { [uid]: S.user.name || '' }, createdAt: new Date().toISOString() };
-    batch.set(fb.doc(db, 'kidsFamilies', fid), family);
-    batch.set(fb.doc(db, 'kidsFamilies', fid, 'members', uid), { role: 'parent', name: S.user.name || '' });
-    batch.set(fb.doc(db, 'kidsUsers', uid), { fid });
-    await batch.commit();
-    if (local) {
-      for (const [id, kid] of Object.entries(local.kids)) {
-        const { id: _drop, ...data } = kid;
-        await fb.setDoc(fb.doc(db, 'kidsFamilies', fid, 'kids', id), data);
-      }
-    }
-    result = local ? 'migrated' : 'created';
-  }
-  Object.assign(S, { mode: 'cloud', role: 'parent', fid, kidId: null });
-  saveDevice();
-  try { localStorage.removeItem(LOCAL_KEY); } catch (err) {}
-  listen();
-  changed();
-  return result;
 }
 
 // Ребёнок начинает сам, без родителя: всё хранится только на телефоне (без сервера и без друзей),
@@ -367,29 +303,6 @@ export async function joinWithCode(rawCode, deviceName = '') {
   return c.role;
 }
 
-// Второй родитель: сначала вход через Google, потом код.
-export async function parentJoin(code) {
-  await googleSignIn();
-  if (!S.user || S.user.anonymous) return null;
-  return joinWithCode(code);
-}
-
-export async function createCode(role, kidId = null) {
-  const code = makeCode(6);
-  await fb.setDoc(fb.doc(db, 'kidsCodes', code), {
-    fid: S.fid, role, kidId, by: S.user.uid,
-    expires: fb.Timestamp.fromMillis(Date.now() + 24 * 3600 * 1000),
-  });
-  return code;
-}
-
-export async function removeMember(uid) {
-  await fb.deleteDoc(fb.doc(db, 'kidsFamilies', S.fid, 'members', uid));
-  if (S.family?.parents?.[uid] !== undefined) {
-    await fb.updateDoc(fb.doc(db, 'kidsFamilies', S.fid), { [`parents.${uid}`]: fb.deleteField() });
-  }
-}
-
 function resetDevice(clearLocal = true) {
   stopListening();
   Object.assign(S, { mode: null, role: null, fid: null, family: null, kids: {}, kidId: null, members: [], friendships: {}, synced: false });
@@ -415,31 +328,6 @@ export async function leaveDevice() {
   changed();
 }
 
-// Удалить семью целиком: детей, подключения, коды и аккаунт-связки.
-export async function deleteFamily() {
-  if (S.mode === 'local') { resetDevice(true); changed(); return; }
-  if (S.family?.owner !== S.user?.uid) throw new Error('not-owner');
-  const fid = S.fid, uid = S.user.uid;
-  for (const fr of Object.values(S.friendships)) await F.removeFriendship({ fb, db }, fr.id).catch(() => {});
-  stopListening();
-  const kids = await fb.getDocs(fb.collection(db, 'kidsFamilies', fid, 'kids'));
-  for (const d of kids.docs) await fb.deleteDoc(d.ref);
-  try {
-    const codes = await fb.getDocs(fb.query(fb.collection(db, 'kidsCodes'), fb.where('fid', '==', fid)));
-    for (const d of codes.docs) await fb.deleteDoc(d.ref).catch(() => {});
-  } catch (err) { console.error(err); }   // коды и так перестают действовать через сутки
-  const members = await fb.getDocs(fb.collection(db, 'kidsFamilies', fid, 'members'));
-  for (const d of members.docs) if (d.id !== uid) await fb.deleteDoc(d.ref);
-  await fb.deleteDoc(fb.doc(db, 'kidsFamilies', fid));
-  await fb.deleteDoc(fb.doc(db, 'kidsFamilies', fid, 'members', uid)).catch(() => {});
-  await fb.deleteDoc(fb.doc(db, 'kidsUsers', uid)).catch(() => {});
-  resetDevice(true);
-  try { await fb.signOut(auth); } catch (err) {}
-  await nativeSignOut();
-  changed();
-}
-
-export const isOwner = () => S.mode === 'local' || S.family?.owner === S.user?.uid;
 
 // ---------- Друзья ----------
 const H = () => ({ fb, db });

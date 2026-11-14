@@ -356,6 +356,15 @@
   .fam-form select, .card select { padding: 8px 10px; border-radius: 10px; border: 1px solid var(--line); background: var(--card); color: var(--text); font: inherit; width: auto !important; }
   .fam-code { margin-top: 10px; padding: 12px; border-radius: 10px; background: var(--bg); text-align: center; }
   .fam-code-num { font-size: 30px; font-weight: 800; letter-spacing: .15em; margin: 6px 0; user-select: all; }
+  .fam-setup { margin-top: 12px; padding-top: 4px; border-top: 1px solid var(--line); }
+  .fam-days { display: flex; flex-wrap: wrap; gap: 6px 12px; font-size: 14px; }
+  .fam-days label { display: flex; gap: 4px; align-items: center; }
+  .fam-grid { display: grid; grid-template-columns: 30px repeat(7, 1fr); gap: 4px; align-items: center; text-align: center; margin-top: 6px; }
+  .fam-cell { aspect-ratio: 1; border-radius: 8px; border: 1px solid var(--line); background: var(--bg); color: var(--text); font-size: 13px; padding: 0; }
+  .fam-cell.off { border: 0; background: transparent; }
+  .fam-cell.done { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .fam-cell.pending { background: #fff3c9; border-color: #e0a526; }
+  .fam-cell.rejected { color: var(--danger); }
   @media (prefers-color-scheme: dark) { .fam-stars { background: #4a3d12; color: #ffc83d; } }
 </style>
 </head>

@@ -1,6 +1,6 @@
 // Интерфейс YouBoost Kids: экраны родителя и ребёнка.
 import { setupSolo, isSolo } from './store.js';
-import { S, initStore, kidsList, updateFamily, updateKid, addKid, removeKid, setupLocal, parentSignIn, joinWithCode, parentJoin, createCode, removeMember, leaveDevice, deleteFamily, isOwner, friendInvite, friendGetInvite, friendAccept, friendUpdate, friendRemove, friendRefreshCards } from './store.js';
+import { S, initStore, kidsList, updateKid, joinWithCode, leaveDevice, friendInvite, friendGetInvite, friendAccept, friendUpdate, friendRemove, friendRefreshCards } from './store.js';
 import * as F from './friends.js';
 import * as G from './logic.js';
 import { t, pw, lang, setLang, LANGS, L, raw } from './i18n.js';
@@ -8,6 +8,7 @@ import { CATEGORIES, HABITS, REWARDS, HABIT_EMOJI, REWARD_EMOJI, AVATARS, COLORS
 import { canPickContact, pickContact, openSms, openWhatsApp } from './native.js';
 import { isNative, hasNativeGoogle, PUBLIC_URL, shareText, copyText, scheduleDailyReminder, cancelDailyReminder, canRemind, onBackButton } from './native.js';
 
+const ADULT_URL = 'https://shusandrik23.github.io/Poleznieprivichki/';
 const appEl = document.getElementById('app');
 const modalEl = document.getElementById('modal');
 const fxEl = document.getElementById('fx');
@@ -18,15 +19,6 @@ function readJSON(k) { try { return JSON.parse(localStorage.getItem(k)); } catch
 const prefs = Object.assign({ pin: null, sound: true, tab: 'home', ktab: 'today', kidMode: null, seen: {}, reminder: null }, readJSON(PREFS_KEY) || {});
 function savePrefs() { try { localStorage.setItem(PREFS_KEY, JSON.stringify(prefs)); } catch (err) {} }
 
-async function hashPin(pin) {
-  const data = new TextEncoder().encode('ybk:' + pin);
-  try {
-    const buf = await crypto.subtle.digest('SHA-256', data);
-    return [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
-  } catch (err) {
-    return 'p' + pin; // без защищённого контекста (http) — простое хранение
-  }
-}
 
 // ---------- Состояние интерфейса ----------
 const ui = {
@@ -45,9 +37,6 @@ const celebrateQueue = [];
 const e = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
 const stars = n => `${n} ${pw(n, 'star')}`;
 const dayLabel = key => raw('days')[G.weekday(key)];
-// В Android-приложении вход через Google работает только с нативным плагином (его нужно настроить в Firebase).
-const googleOk = () => S.cloudReady && (!isNative || hasNativeGoogle());
-const parentPid = () => (S.mode === 'local' ? 'p:local' : 'p:' + S.user?.uid);
 
 function errText(err) {
   const code = err?.message || err?.code || String(err);
@@ -162,11 +151,8 @@ function openModal(m) { modal = m; ui.pinBuf = ''; renderModal(true); }
 function closeModal() { modal = null; renderModal(); setTimeout(nextCelebration, 250); }
 
 function screenName() {
-  if (!S.ready || !S.mode) return 'welcome';
-  if (S.role === 'child' || activeKidMode()) return 'kid';
-  return 'parent';
+  return !S.ready || !S.mode || S.role !== 'child' ? 'welcome' : 'kid';
 }
-function activeKidMode() { return S.role === 'parent' && prefs.kidMode && S.kids[prefs.kidMode] ? S.kids[prefs.kidMode] : null; }
 
 function view() {
   if (!S.ready || (S.mode === 'cloud' && !S.synced)) return splash();
@@ -175,10 +161,15 @@ function view() {
     const kid = S.kids[S.kidId];
     return kid ? kidView(kid, { device: true }) : splash();
   }
-  if (!prefs.pin) return kidsList().length ? setupPin() : setupKid();
-  const km = activeKidMode();
-  if (km) return kidView(km, { locked: true });
-  return parentView();
+  return parentMoved();
+}
+
+// YouBoost Kids — только для детей. Родители управляют семьёй во взрослом YouBoost (вкладка «Дети»).
+function parentMoved() {
+  return `<main class="narrow"><div class="hero"><div class="logo-big">👨‍👩‍👧</div></div>
+    <div class="card center"><h2>${t('moved.title')}</h2><p class="muted">${t('moved.text')}</p>
+      <div class="stack"><a class="btn big primary" href="${ADULT_URL}" target="_blank" rel="noopener">${t('moved.open')}</a>
+      <button class="btn big" data-act="leaveParent">${t('moved.reset')}</button></div></div></main>`;
 }
 
 function splash() {
@@ -194,17 +185,6 @@ function welcome() {
   const head = `<div class="hero"><div class="logo-big">⭐</div><div class="brand">YouBoost <span>Kids</span></div><p class="muted">${t('tagline')}</p></div>`;
   const offline = !S.cloudReady ? `<p class="msg error">${t('welcome.noCloud')}</p>` : '';
   if (S.unlinked && !ui.sawUnlinked) { ui.sawUnlinked = true; ui.welcome = 'start'; }
-  if (ui.welcome === 'parent') {
-    return `<main class="narrow">${head}
-      <div class="card"><h2>${t('welcome.parentTitle')}</h2>
-        ${googleOk() || !S.cloudReady ? `<button class="btn big primary" data-act="parentGoogle" ${ui.busy || !S.cloudReady ? 'disabled' : ''}>${GOOGLE_SVG} ${t('welcome.google')}</button>
-        <p class="hint">${t('welcome.googleHint')}</p>` : `<p class="hint">${t('welcome.googleSoon')}</p>`}
-        <button class="btn big" data-act="startLocal" ${ui.busy ? 'disabled' : ''}>📱 ${t('welcome.local')}</button>
-        <p class="hint">${t('welcome.localHint')}</p>
-        ${googleOk() ? `<button class="link" data-act="welcome" data-step="parentCode">${t('welcome.haveCode')}</button>` : ''}
-      </div>${msgLine()}${S.cloudReady ? '' : offline}
-      <button class="link" data-act="welcome" data-step="start">${t('welcome.back')}</button></main>`;
-  }
   if (ui.welcome === 'solo') {
     const d = (ui.solo ||= { name: randomNick(lang), age: 8, avatar: AVATARS[Math.floor(Math.random() * AVATARS.length)], color: COLORS[Math.floor(Math.random() * COLORS.length)] });
     return `<main class="narrow">
@@ -220,71 +200,32 @@ function welcome() {
       </div>
       <button class="link" data-act="welcome" data-step="start">${t('welcome.back')}</button></main>`;
   }
-  if (ui.welcome === 'child' || ui.welcome === 'parentCode') {
-    const child = ui.welcome === 'child';
+  if (ui.welcome === 'child') {
     return `<main class="narrow">${head}
-      <div class="card"><h2>${child ? t('welcome.childTitle') : t('welcome.haveCode')}</h2>
-        ${child ? `<p class="muted">${t('welcome.childText')}</p>` : `<p class="muted">${t('err.need-google')}</p>`}
-        <form data-form="${child ? 'joinChild' : 'joinParent'}" class="stack">
-          <input id="code" class="code-input" maxlength="8" autocomplete="off" autocapitalize="characters" placeholder="${t('welcome.codePh')}" value="${child ? e(ui.joinCode || '') : ''}">
-          <button class="btn big primary" ${ui.busy || !S.cloudReady ? 'disabled' : ''}>${child ? t('welcome.connect') : GOOGLE_SVG + ' ' + t('welcome.connect')}</button>
+      <div class="card"><h2>${t('welcome.childTitle')}</h2>
+        <p class="muted">${t('welcome.childText')}</p>
+        <form data-form="joinChild" class="stack">
+          <input id="code" class="code-input" maxlength="8" autocomplete="off" autocapitalize="characters" placeholder="${t('welcome.codePh')}" value="${e(ui.joinCode || '')}">
+          <button class="btn big primary" ${ui.busy || !S.cloudReady ? 'disabled' : ''}>${t('welcome.connect')}</button>
         </form>
       </div>${msgLine()}${offline}
-      <button class="link" data-act="welcome" data-step="${child ? 'start' : 'parent'}">${t('welcome.back')}</button></main>`;
+      <button class="link" data-act="welcome" data-step="start">${t('welcome.back')}</button></main>`;
   }
   return `<main class="narrow">${head}
     ${S.unlinked ? `<p class="msg error">${t('welcome.unlinked')}</p>` : ''}
     ${pendingFriendCode() ? `<p class="msg">👫 ${t('fr.invitedFirst')}</p>` : ''}
     <div class="card center"><h2>${t('welcome.title')}</h2><p class="muted">${t('welcome.text')}</p>
       <div class="stack">
-        <button class="btn big primary" data-act="welcome" data-step="parent">${t('welcome.parent')}</button>
-        <button class="btn big" data-act="welcome" data-step="solo">${t('welcome.solo')}</button>
-        <button class="link" data-act="welcome" data-step="child">${t('welcome.childCode')}</button>
+        <button class="btn big primary" data-act="welcome" data-step="solo">${t('welcome.solo')}</button>
+        <button class="btn big" data-act="welcome" data-step="child">${t('welcome.childCode')}</button>
       </div>
     </div>
+    <div class="card center parents-note"><b>${t('welcome.parentsTitle')}</b><p class="muted">${t('welcome.parentsText')}</p>
+      <a class="btn" href="${ADULT_URL}" target="_blank" rel="noopener">${t('moved.open')}</a></div>
     <div class="lang-row">${LANGS.map(([c, n]) => `<button class="chip ${c === lang ? 'sel' : ''}" data-act="lang" data-lang="${c}">${n}</button>`).join('')}</div>
   </main>`;
 }
 
-// ---------- Первая настройка ----------
-function kidForm(d, prefix) {
-  return `
-    <label class="field"><span>${t('setup.kidName')}</span><input id="${prefix}name" maxlength="24" value="${e(d.name)}" ${prefix === 'k_' ? 'data-fresh' : ''}></label>
-    <label class="field"><span>${t('setup.kidAge')}</span>
-      <div class="chips">${[5, 6, 7, 8, 9, 10, 11, 12, 13, 14].map(a => `<button type="button" class="chip ${d.age === a ? 'sel' : ''}" data-act="draft" data-k="age" data-v="${a}" data-scope="${prefix}">${a}</button>`).join('')}</div></label>
-    <div class="field"><span>${t('setup.avatar')}</span>
-      <div class="emoji-grid">${AVATARS.map(a => `<button type="button" class="emo ${d.avatar === a ? 'sel' : ''}" data-act="draft" data-k="avatar" data-v="${a}" data-scope="${prefix}">${a}</button>`).join('')}</div></div>
-    <div class="field"><span>${t('setup.color')}</span>
-      <div class="chips">${COLORS.map(c => `<button type="button" class="swatch ${d.color === c ? 'sel' : ''}" style="background:${c}" data-act="draft" data-k="color" data-v="${c}" data-scope="${prefix}" aria-label="${c}"></button>`).join('')}</div></div>`;
-}
-
-function setupKid() {
-  const d = ui.setup;
-  return `<main class="narrow">
-    <div class="hero small"><div class="avatar xl" style="background:${d.color}">${d.avatar}</div></div>
-    <form class="card stack" data-form="setupKid">
-      <h2>${t('setup.familyTitle')}</h2>
-      ${kidForm(d, 's_')}
-      <label class="check"><input type="checkbox" id="s_starter" ${d.starter ? 'checked' : ''}> ${t('setup.starter')}</label>
-      <button class="btn big primary">${t('setup.next')} →</button>
-    </form>${msgLine()}</main>`;
-}
-
-function setupPin() {
-  const repeat = ui.pinFirst;
-  return `<main class="narrow"><div class="card center">
-    <div class="logo-big">🔒</div>
-    <h2>${repeat ? t('setup.pinRepeat') : t('setup.pinTitle')}</h2>
-    ${repeat ? '' : `<p class="muted">${t('setup.pinText')}</p>`}
-    ${pinPad('setupPin')}
-  </div>${msgLine()}</main>`;
-}
-
-function pinPad(purpose) {
-  const dots = [0, 1, 2, 3].map(i => `<span class="dot ${i < ui.pinBuf.length ? 'on' : ''}"></span>`).join('');
-  const keys = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '', '0', '⌫'];
-  return `<div class="pin-dots">${dots}</div><div class="pinpad">${keys.map(k => k === '' ? '<span></span>' : `<button type="button" class="key" data-act="pinKey" data-k="${k}" data-purpose="${purpose}">${k}</button>`).join('')}</div>`;
-}
 
 // ---------- Ребёнок ----------
 function kidView(kid, { locked, device }) {
@@ -539,126 +480,8 @@ function kidChallenges(kid) {
   return html + list.map(ch => challengeCard(ch, pid)).join('');
 }
 
-// ---------- Родитель ----------
-function parentView() {
-  const tab = prefs.tab;
-  let body;
-  if (tab === 'kids') body = parentKids();
-  else if (tab === 'rewards') body = parentRewards();
-  else if (tab === 'challenges') body = parentChallenges();
-  else if (tab === 'settings') body = parentSettings();
-  else body = parentHome();
-  const pending = kidsList().reduce((n, k) => n + G.pendingList(k).length + (k.requests || []).filter(r => G.requestStatus(k, r) === 'pending').length
-    + G.pendingProposals(k).filter(p => p.to === parentPid() || S.mode === 'local').length, 0)
-    + (S.mode === 'cloud' ? Object.values(S.friendships || {}).filter(fr => F.needsApproval(fr, S.fid)).length : 0);
-  const tabs = [['home', '🏠', t('tab.home'), pending], ['kids', '👧', t('tab.kids')], ['rewards', '🎁', t('tab.rewards')], ['challenges', '🏆', t('tab.challenges')], ['settings', '⚙️', t('tab.settings')]];
-  const fname = S.family?.name;
-  const date = new Date().toLocaleDateString(lang === 'ru' ? 'ru-RU' : 'en-US', { weekday: 'long', day: 'numeric', month: 'long' });
-  return `<header class="parent-top"><div><div class="brand sm">YouBoost <span>Kids</span></div><div class="fam">${fname ? t('home.hello', { name: e(fname) }) : t('home.helloNoName')} · <span class="date">${e(date)}</span></div></div></header>
-    <main class="parent-main">${msgLine()}${body}</main>
-    <nav class="bottom-nav">${tabs.map(([id, ic, label, badge]) => `<button class="${tab === id ? 'active' : ''}" data-act="tab" data-tab="${id}"><span class="ic">${ic}</span>${label}${badge ? `<i class="num-badge">${badge}</i>` : ''}</button>`).join('')}</nav>`;
-}
 
-function parentHome() {
-  const kids = kidsList();
-  const day = G.today();
-  if (!kids.length) return `<div class="empty">👶<p>${t('home.noKids')}</p><button class="btn primary" data-act="newKid">${t('home.addKid')}</button></div>`;
-  let html = kids.map(k => {
-    const list = G.todayList(k, day);
-    const done = list.filter(h => G.isDone(k, h, day)).length;
-    return `<div class="card kid-row" style="--kc:${k.color}">
-      <div class="row"><div class="avatar" style="background:${k.color}">${e(k.avatar)}</div>
-        <div class="grow"><div class="kid-name">${e(k.name)}</div><div class="small">${list.length ? t('home.today', { done, total: list.length }) : t('home.nothingToday')}</div></div>
-        <div class="star-pill sm">⭐ ${G.balance(k, S.family)}</div></div>
-      ${list.length ? `<div class="bar"><div class="fill" style="width:${Math.round(done / list.length * 100)}%;background:${k.color}"></div></div>` : ''}
-      <div class="row gap"><button class="btn primary grow" data-act="enterKid" data-kid="${k.id}">▶ ${t('home.open')}</button><button class="btn" data-act="openKid" data-kid="${k.id}">${t('kids.edit')}</button></div>
-    </div>`;
-  }).join('');
-  const approvals = kids.flatMap(k => G.pendingList(k).map(p => ({ ...p, kid: k })));
-  const requests = kids.flatMap(k => (k.requests || []).filter(r => G.requestStatus(k, r) === 'pending').map(r => ({ r, kid: k })));
-  if (approvals.length) {
-    html += `<h3 class="section">${t('home.approvals')}</h3><div class="card list">${approvals.map(a => `
-      <div class="appr"><div class="grow"><b>${e(a.kid.avatar)} ${e(a.kid.name)}</b> · ${e(a.habit.emoji)} ${e(a.habit.name)}
-        <div class="small">${a.day === day ? t('home.todayWord') : a.day === G.addDays(day, -1) ? t('home.yesterday') : a.day} · ⭐ ${a.stars}</div></div>
-        <button class="btn sm primary" data-act="approve" data-kid="${a.kid.id}" data-hid="${a.habit.id}" data-day="${a.day}" data-v="1">✓ ${t('home.approve')}</button>
-        <button class="btn sm" data-act="approve" data-kid="${a.kid.id}" data-hid="${a.habit.id}" data-day="${a.day}" data-v="0" aria-label="${t('home.reject')}">✕</button></div>`).join('')}</div>`;
-  }
-  if (requests.length) {
-    html += `<h3 class="section">${t('home.requests')}</h3><div class="card list">${requests.map(({ r, kid }) => `
-      <div class="appr"><div class="grow"><b>${e(kid.avatar)} ${e(kid.name)}</b> · ${e(r.emoji)} ${e(r.name)} <div class="small">⭐ ${r.cost}</div></div>
-        <button class="btn sm primary" data-act="decide" data-kid="${kid.id}" data-id="${r.id}" data-v="given">🎁 ${t('home.give')}</button>
-        <button class="btn sm" data-act="decide" data-kid="${kid.id}" data-id="${r.id}" data-v="rejected" aria-label="${t('home.decline')}">✕</button></div>`).join('')}</div>`;
-  }
-  const me = parentPid();
-  const proposals = kids.flatMap(k => G.pendingProposals(k).filter(p => p.to === me || S.mode === 'local').map(p => ({ p, kid: k })));
-  if (proposals.length) {
-    html += `<h3 class="section">${t('home.proposals')}</h3><div class="card list">${proposals.map(({ p, kid }) => `
-      <div class="appr"><div class="grow"><b>${e(kid.avatar)} ${e(kid.name)}</b> · ${e(p.emoji)} ${e(p.name)}<div class="small">${p.days} ${pw(p.days, 'day')}</div></div>
-        <button class="btn sm primary" data-act="answerProposal" data-kid="${kid.id}" data-id="${p.id}" data-v="accepted">💪 ${t('home.acceptCh')}</button>
-        <button class="btn sm" data-act="answerProposal" data-kid="${kid.id}" data-id="${p.id}" data-v="declined" aria-label="${t('home.decline')}">✕</button></div>`).join('')}</div>`;
-  }
-  const frApprovals = S.mode === 'cloud' ? Object.values(S.friendships || {}).filter(fr => F.needsApproval(fr, S.fid)) : [];
-  if (frApprovals.length) {
-    html += `<h3 class="section">${t('fr.approvals')}</h3><div class="card list">${frApprovals.map(fr => {
-      const mine = S.kids[F.myKidIn(fr, S.fid)];
-      const o = F.other(fr, mine?.id);
-      return `<div class="appr"><div class="grow"><b>${e(mine?.avatar || '')} ${e(mine?.name || '')}</b> ↔ ${e(o.card.avatar)} ${e(o.card.name)}<div class="small">${t('fr.wantsFriend')}</div></div>
-        <button class="btn sm primary" data-act="frApprove" data-pair="${fr.id}" data-v="1">✓ ${t('fr.allow')}</button>
-        <button class="btn sm" data-act="frApprove" data-pair="${fr.id}" data-v="0" aria-label="${t('home.decline')}">✕</button></div>`;
-    }).join('')}</div>`;
-  }
-  if (!approvals.length && !requests.length && !proposals.length && !frApprovals.length) html += `<p class="hint center">${t('home.allClear')}</p>`;
-  return html;
-}
 
-function parentKids() {
-  const kids = kidsList();
-  const open = ui.kidOpen && S.kids[ui.kidOpen] ? S.kids[ui.kidOpen] : kids[0];
-  if (!open) return `<div class="empty">👶<p>${t('home.noKids')}</p><button class="btn primary" data-act="newKid">${t('home.addKid')}</button></div>`;
-  const switcher = `<div class="kid-switch">${kids.map(k => `<button class="kid-chip ${k.id === open.id ? 'sel' : ''}" style="--kc:${k.color}" data-act="openKid" data-kid="${k.id}"><span class="avatar sm" style="background:${k.color}">${e(k.avatar)}</span>${e(k.name)}</button>`).join('')}<button class="kid-chip add" data-act="newKid">＋</button></div>`;
-  const k = open;
-  const fam = S.family || {};
-  const stickers = G.earnedStickers(k, fam, S.kids).length;
-  const xp = G.lifetimeStars(k, fam);
-  const plv = G.petLevel(xp).level;
-  const pet = k.pet ? `${plv === 0 ? '🥚' : G.petById(k.pet.type).emoji} ${e(k.pet.name)} · ${plv === 0 ? t('kid.petEgg') : t('kid.petLevel', { n: plv })}` : '—';
-  const habits = k.habits || [];
-  const days = [...Array(7)].map((_, i) => G.addDays(G.today(), i - 6));
-  const grid = habits.length ? `<div class="grid7"><div></div>${days.map(d => `<div class="gh">${dayLabel(d)}<br>${d.slice(8)}</div>`).join('')}
-    ${habits.map(h => `<div class="gname" title="${e(h.name)}">${e(h.emoji)}</div>${days.map(d => {
-      if (!G.scheduledOn(h, d)) return '<div class="gc off"></div>';
-      const st = G.status(k, h.id, d, h);
-      return `<button class="gc ${st}" data-act="toggle" data-kid="${k.id}" data-hid="${h.id}" data-day="${d}" data-ctx="parent">${st === 'done' ? '✓' : st === 'pending' ? '⏳' : st === 'rejected' ? '✕' : ''}</button>`;
-    }).join('')}`).join('')}</div>` : '';
-  const devices = S.mode === 'cloud'
-    ? `${S.members.filter(m => m.role === 'child' && m.kidId === k.id).map(m => `<div class="row-between"><span>📱 ${e(m.name || t('kids.device'))}</span><button class="btn sm" data-act="unlink" data-uid="${m.uid}">${t('kids.unlink')}</button></div>`).join('')}
-       <button class="btn full" data-act="linkDevice" data-kid="${k.id}" ${ui.busy ? 'disabled' : ''}>${t('kids.link')}</button>
-       <p class="hint">${t('kids.noDevices')}</p>`
-    : `<p class="hint">${t('kids.needCloud')}</p><p class="hint">${t('kids.noDevices')}</p>`;
-  return `${switcher}
-    <div class="card kid-head" style="--kc:${k.color}">
-      <div class="row"><div class="avatar lg" style="background:${k.color}">${e(k.avatar)}</div>
-        <div class="grow"><div class="kid-name">${e(k.name)}${k.age ? ` <span class="muted">· ${k.age}</span>` : ''}</div>
-        <div class="small">${t('kids.balance')}: ⭐ ${G.balance(k, fam)} · ${t('kids.stickersCount')}: ${stickers}/${G.STICKERS.length}</div>
-        <div class="small">${t('kids.pet')}: ${pet}</div></div>
-        <button class="btn sm" data-act="editKid" data-kid="${k.id}">✏️</button></div>
-      <div class="row gap"><button class="btn primary grow" data-act="enterKid" data-kid="${k.id}">▶ ${t('home.open')}</button><button class="btn" data-act="bonus" data-kid="${k.id}">${t('kids.bonus')}</button></div>
-    </div>
-    <h3 class="section">${t('kids.habits')}</h3>
-    <div class="card list">
-      ${habits.length ? habits.map(h => `<button class="h-row" data-act="editHabit" data-kid="${k.id}" data-hid="${h.id}">
-        <span class="h-emoji sm">${e(h.emoji)}</span><span class="grow"><b>${e(h.name)}</b><span class="small block">${'⭐'.repeat(Math.min(h.stars, 3))} · ${daysText(h.days)}${h.approval ? ' · 👀' : ''}</span></span><span class="muted">›</span></button>`).join('')
-        : `<p class="muted">${t('kids.noHabits')}</p>`}
-      <div class="row gap"><button class="btn grow" data-act="catalog" data-kid="${k.id}">📋 ${t('kids.fromCatalog')}</button><button class="btn grow" data-act="newHabit" data-kid="${k.id}">✏️ ${t('kids.custom')}</button></div>
-    </div>
-    ${grid ? `<h3 class="section">${t('kids.history')}</h3><div class="card">${grid}<p class="hint">${t('kids.markFor')}</p></div>` : ''}
-    <h3 class="section">${t('kids.devices')}</h3><div class="card list">${devices}</div>
-    ${S.mode === 'cloud' ? `<h3 class="section">${t('fr.list')}</h3><div class="card list">${Object.values(S.friendships || {}).filter(fr => F.involves(fr, k.id) && !F.isDeclined(fr)).map(fr => {
-      const o = F.other(fr, k.id);
-      return `<div class="row-between"><span>${e(o.card.avatar)} ${e(o.card.name)}${F.isActive(fr) ? '' : ` <span class="tag wait">${t('fr.waitParents')}</span>`}${fr.via === 'contact' ? ' <span class="small">📇</span>' : ''}</span><button class="btn sm" data-act="frRemove" data-pair="${fr.id}">${t('fr.remove')}</button></div>`;
-    }).join('') || `<p class="muted">${t('fr.noneParent')}</p>`}</div>` : ''}
-    <button class="link danger" data-act="deleteKid" data-kid="${k.id}">${t('kids.delete')}</button>`;
-}
 
 function daysText(days) {
   if (!days || !days.length || days.length === 7) return t('habit.everyDay');
@@ -666,62 +489,8 @@ function daysText(days) {
   return [1, 2, 3, 4, 5, 6, 0].filter(d => days.includes(d)).map(d => raw('days')[d]).join(', ');
 }
 
-function parentRewards() {
-  const rewards = S.family?.rewards || [];
-  const have = new Set(rewards.map(r => r.name));
-  const history = kidsList().flatMap(k => (k.requests || []).map(r => ({ r, k }))).sort((a, b) => (a.r.at < b.r.at ? 1 : -1)).slice(0, 20);
-  return `<p class="muted">${t('rewards.text')}</p>
-    <div class="card list">
-      ${rewards.length ? rewards.map(r => `<button class="h-row" data-act="editReward" data-id="${r.id}"><span class="h-emoji sm">${e(r.emoji)}</span><span class="grow"><b>${e(r.name)}</b></span><span class="star-pill sm">⭐ ${r.cost}</span></button>`).join('') : `<p class="muted">${t('rewards.empty')}</p>`}
-      <button class="btn primary full" data-act="newReward">${t('rewards.add')}</button>
-    </div>
-    <h3 class="section">${t('rewards.ideas')}</h3>
-    <div class="chips">${REWARDS.filter(r => !have.has(L(r))).map((r, i) => `<button class="chip" data-act="addIdea" data-i="${REWARDS.indexOf(r)}">${r.emoji} ${e(L(r))} · ⭐${r.cost}</button>`).join('')}</div>
-    ${history.length ? `<h3 class="section">${t('rewards.history')}</h3><div class="card list">${history.map(({ r, k }) => {
-      const st = G.requestStatus(k, r);
-      return `<div class="row-between"><span>${e(k.avatar)} ${e(k.name)} · ${e(r.emoji)} ${e(r.name)} · ⭐${r.cost}</span><span class="tag ${st === 'given' ? 'ok' : st === 'rejected' ? 'no' : 'wait'}">${t('rewards.' + st)}</span></div>`;
-    }).join('')}</div>` : ''}`;
-}
 
-function parentChallenges() {
-  const list = sortedChallenges();
-  return `<p class="muted">${t('ch.text')}</p>
-    <button class="btn primary full" data-act="newChallenge" ${kidsList().length ? '' : 'disabled'}>${t('ch.new')}</button>
-    <div class="spacer"></div>
-    ${list.length ? list.map(ch => challengeCard(ch, parentPid())).join('') : `<div class="empty">🏆<p>${t('ch.empty')}</p></div>`}`;
-}
 
-function parentSettings() {
-  const fam = S.family || {};
-  let account;
-  if (S.mode === 'local') {
-    account = `<p class="muted">${t('set.local')}</p>
-      ${googleOk() ? `<button class="btn primary full" data-act="connectGoogle" ${ui.busy ? 'disabled' : ''}>${GOOGLE_SVG} ${t('set.connectGoogle')}</button>
-      <p class="hint">${t('set.connectHint')}</p>` : `<p class="hint">${t(S.cloudReady ? 'welcome.googleSoon' : 'welcome.noCloud')}</p>`}`;
-  } else {
-    const parents = S.members.filter(m => m.role === 'parent');
-    account = `<p>${t('set.signedIn', { who: e(S.user?.email || S.user?.name || '') })}</p>
-      <div class="small">${t('set.parents')}:</div>
-      ${parents.map(p => `<div class="row-between"><span>👤 ${e(p.name || '—')}${p.uid === fam.owner ? ' ⭐' : ''}</span>${isOwner() && p.uid !== S.user?.uid ? `<button class="btn sm" data-act="unlink" data-uid="${p.uid}">${t('kids.unlink')}</button>` : ''}</div>`).join('')}
-      <button class="btn full" data-act="inviteParent" ${ui.busy ? 'disabled' : ''}>${t('set.inviteParent')}</button>
-      <button class="btn full" data-act="signOut">${t('set.signOut')}</button>`;
-  }
-  return `<div class="card list">
-      <button class="h-row" data-act="editFamily"><span class="grow">${t('set.family')}</span><span class="muted">${e(fam.name || '—')} ›</span></button>
-      <div class="row-between"><span>${t('set.lang')}</span><div class="chips">${LANGS.map(([c, n]) => `<button class="chip ${c === lang ? 'sel' : ''}" data-act="lang" data-lang="${c}">${n}</button>`).join('')}</div></div>
-      <label class="row-between"><span>${t('set.sound')}</span><input type="checkbox" class="switch" data-act="sound" ${prefs.sound ? 'checked' : ''}></label>
-      ${reminderRow()}
-      <button class="h-row" data-act="changePin"><span class="grow">🔒 ${t('set.pin')}</span><span class="muted">›</span></button>
-    </div>
-    <h3 class="section">${t('set.account')}</h3>
-    <div class="card list">${account}</div>
-    <div class="card list">
-      <a class="h-row" href="privacy.html" target="_blank" rel="noopener"><span class="grow">${t('set.privacy')}</span><span class="muted">›</span></a>
-      <a class="h-row" href="../" target="_blank" rel="noopener"><span class="grow">${t('set.adultApp')}</span><span class="muted">›</span></a>
-    </div>
-    ${isOwner() ? `<button class="link danger" data-act="deleteFamily">${t('set.deleteFamily')}</button>` : ''}
-    <p class="hint center">YouBoost Kids · ${S.mode === 'cloud' ? '☁️' : '📱'}</p>`;
-}
 
 function reminderRow() {
   if (!canRemind()) return '';
@@ -735,10 +504,6 @@ function modalView() {
   const m = modal;
   const close = `<button class="sheet-close" data-act="closeModal" aria-label="${t('common.close')}">✕</button>`;
   switch (m.type) {
-    case 'pin':
-      return `${close}<div class="center"><div class="logo-big">🔒</div><h2>${m.repeat ? t('setup.pinRepeat') : m.purpose === 'newPin' ? t('setup.pinTitle') : t('pin.enter')}</h2>
-        ${pinPad(m.purpose)}${m.error ? `<p class="msg error">${e(m.error)}</p>` : ''}
-        ${m.purpose === 'exitKid' || m.purpose === 'changePin' ? `<button class="link" data-act="forgotPin">${t('pin.forgot')}</button>` : ''}</div>`;
     case 'gate':
       return `${close}<div class="center"><div class="logo-big">🧑‍🦰</div><h2>${t('gate.title')}</h2><p>${t('gate.text')}</p>
         <form data-form="gate" class="stack"><div class="gate-q">${m.a} × ${m.b} = ?</div>
@@ -749,34 +514,14 @@ function modalView() {
     case 'code':
       return `${close}<div class="center"><h2>${e(m.title)}</h2><div class="code-big">${e(m.code)}</div><p class="muted">${e(m.text)}</p>
         <div class="row gap center-row"><button class="btn" data-act="copyCode">${m.copied ? '✓ ' + t('common.copied') : t('common.copy')}</button><button class="btn primary" data-act="shareCode">${t('common.share')}</button></div></div>`;
-    case 'kid':
-      return `${close}<form data-form="kid" class="stack"><h2>${m.id ? e(m.draft.name) : t('setup.familyTitle')}</h2>${kidForm(m.draft, 'k_')}
-        ${m.id ? '' : `<label class="check"><input type="checkbox" id="k_starter" checked> ${t('setup.starter')}</label>`}
-        <button class="btn primary big">${t('common.save')}</button></form>`;
     case 'habit': return close + habitForm(m);
     case 'catalog': return close + catalogView(m);
-    case 'reward':
-      return `${close}<form data-form="reward" class="stack"><h2>${t('rewards.name')}</h2>
-        <label class="field"><span>${t('rewards.name')}</span><input id="r_name" maxlength="40" value="${e(m.draft.name)}" data-fresh></label>
-        <label class="field"><span>${t('rewards.cost')}</span><input id="r_cost" type="number" min="1" max="9999" value="${m.draft.cost}" data-fresh></label>
-        <div class="field"><span>${t('habit.emoji')}</span><div class="emoji-grid">${REWARD_EMOJI.map(x => `<button type="button" class="emo ${m.draft.emoji === x ? 'sel' : ''}" data-act="mdraft" data-k="emoji" data-v="${x}">${x}</button>`).join('')}</div></div>
-        <button class="btn primary big">${t('common.save')}</button>
-        ${m.id ? `<button type="button" class="link danger" data-act="deleteReward" data-id="${m.id}">${t('common.delete')}</button>` : ''}</form>`;
-    case 'bonus':
-      return `${close}<form data-form="bonus" class="stack"><h2>${t('kids.bonus')}</h2>
-        <div class="chips center-row">${[1, 2, 3, 5, 10].map(n => `<button type="button" class="chip big ${m.stars === n ? 'sel' : ''}" data-act="mdraft" data-k="stars" data-v="${n}" data-num>⭐ ${n}</button>`).join('')}</div>
-        <input id="b_reason" maxlength="60" placeholder="${t('kids.bonusReason')}">
-        <button class="btn primary big">${t('kids.bonusGive')}</button></form>`;
     case 'want':
       return `<div class="center"><div class="cele-emoji">${e(m.reward.emoji)}</div><h2>${t('kid.confirmWant', { cost: m.reward.cost, name: e(m.reward.name) })}</h2>
         <div class="row gap center-row"><button class="btn big" data-act="closeModal">${t('kid.no')}</button><button class="btn primary big" data-act="confirmWant">${t('kid.yes')}</button></div></div>`;
     case 'petName':
       return `${close}<form data-form="petName" class="stack center"><div class="cele-emoji">${G.petById(m.type).emoji}</div><h2>${t('kid.petName')}</h2>
         <input id="petName" maxlength="20" value="${e(m.name)}" class="center-text" data-fresh><button class="btn primary big">${t('common.save')}</button></form>`;
-    case 'text':
-      return `${close}<form data-form="text" class="stack"><h2>${e(m.title)}</h2><input id="t_val" maxlength="${m.max || 40}" value="${e(m.value || '')}" placeholder="${e(m.ph || '')}" data-fresh>
-        <button class="btn primary big">${t('common.save')}</button></form>`;
-    case 'challenge': return close + challengeForm(m);
     case 'frSend':
       return `${close}<div class="center"><div class="cele-emoji">📇</div><h2>${t('fr.sendTo', { name: e(m.contact.name || m.contact.phone) })}</h2><p class="muted">${t('fr.sendText')}</p>
         <div class="stack"><button class="btn primary big" data-act="frSms">💬 SMS</button><button class="btn big" data-act="frWa">🟢 WhatsApp</button></div></div>`;
@@ -870,28 +615,10 @@ function catalogView(m) {
   </div></div>`).join('')}`;
 }
 
-function challengeForm(m) {
-  const d = m.draft;
-  const people = [...kidsList().map(k => ['k:' + k.id, `${k.avatar} ${k.name}`])];
-  if (S.mode === 'local') people.push(['p:local', '👤 ' + t('ch.me')]);
-  else Object.entries(S.family?.parents || {}).forEach(([uid, name]) => people.push(['p:' + uid, '👤 ' + (uid === S.user?.uid ? t('ch.me') : (name || t('ch.parent')))]));
-  return `<form data-form="challenge" class="stack"><h2>${t('ch.new')}</h2>
-    <label class="field"><span>${t('ch.habit')}</span><input id="c_name" maxlength="40" value="${e(d.name)}" data-fresh></label>
-    <div class="chips">${['read', 'sport', 'veggies', 'screen', 'bed', 'water'].map(code => { const h = HABITS.find(x => x.code === code); return `<button type="button" class="chip" data-act="chIdea" data-code="${code}">${h.emoji} ${e(h[lang] || h.en)}</button>`; }).join('')}</div>
-    <div class="field"><span>${t('habit.emoji')}</span><div class="emoji-grid">${HABIT_EMOJI.slice(0, 24).map(x => `<button type="button" class="emo ${d.emoji === x ? 'sel' : ''}" data-act="mdraft" data-k="emoji" data-v="${x}">${x}</button>`).join('')}</div></div>
-    <div class="field"><span>${t('ch.days')}</span><div class="chips">${[3, 7, 14, 21, 30].map(n => `<button type="button" class="chip ${d.days === n ? 'sel' : ''}" data-act="mdraft" data-k="days" data-v="${n}" data-num>${n}</button>`).join('')}</div></div>
-    <div class="field"><span>${t('ch.bonus')}</span><div class="chips">${[5, 10, 20, 30].map(n => `<button type="button" class="chip ${d.bonus === n ? 'sel' : ''}" data-act="mdraft" data-k="bonus" data-v="${n}" data-num>⭐ ${n}</button>`).join('')}</div></div>
-    <div class="field"><span>${t('ch.startDay')}</span><div class="chips">
-      <button type="button" class="chip ${d.startOffset === 0 ? 'sel' : ''}" data-act="mdraft" data-k="startOffset" data-v="0" data-num>${t('ch.todayStart')}</button>
-      <button type="button" class="chip ${d.startOffset === 1 ? 'sel' : ''}" data-act="mdraft" data-k="startOffset" data-v="1" data-num>${t('ch.tomorrow')}</button></div></div>
-    <div class="field"><span>${t('ch.who')}</span><div class="chips">${people.map(([pid, name]) => `<button type="button" class="chip ${d.participants.includes(pid) ? 'sel' : ''}" data-act="chWho" data-pid="${pid}">${e(name)}</button>`).join('')}</div></div>
-    ${m.error ? `<p class="msg error">${e(m.error)}</p>` : ''}
-    <button class="btn primary big">${t('ch.start')} 🏁</button></form>`;
-}
 
 // ---------- Праздники: новые наклейки и уровни питомца ----------
 function checkCelebrations() {
-  const kid = S.role === 'child' ? S.kids[S.kidId] : activeKidMode();
+  const kid = S.role === 'child' ? S.kids[S.kidId] : null;
   if (!kid || !S.synced) return;
   const fam = S.family || {};
   const got = G.earnedStickers(kid, fam, S.kids);
@@ -922,12 +649,7 @@ function nextCelebration() {
   confetti(50); sound('fanfare');
 }
 
-// ---------- Действия ----------
-function draftScope(scope) { return scope === 's_' ? ui.setup : modal?.draft; }
 
-function readKidForm(root, prefix, d) {
-  d.name = root.querySelector('#' + prefix + 'name')?.value.trim() || d.name;
-}
 
 function habitFromCatalog(c) {
   // в самостоятельном режиме подтверждать некому
@@ -987,18 +709,6 @@ async function toggleMark(kidId, hid, day, ctx, el) {
 const actions = {
   welcome: d => { ui.welcome = d.step; ui.msg = null; S.unlinked = false; ui.sawUnlinked = false; render(); },
   lang: d => { setLang(d.lang); ui.phrase = {}; render(); if (modal) renderModal(); },
-  startLocal: () => { setupLocal(''); render(); },
-  parentGoogle: () => busy(async () => { await parentSignIn(''); }),
-  connectGoogle: () => busy(async () => { const r = await parentSignIn(S.family?.name || ''); if (r === 'migrated') ui.msg = { text: t('set.migrated') }; }),
-  draft: (d, el) => {
-    const scope = d.scope;
-    const target = draftScope(scope);
-    if (!target) return;
-    const root = scope === 's_' ? appEl : modalEl;
-    readKidForm(root, scope, target);
-    target[d.k] = d.k === 'age' ? Number(d.v) : d.v;
-    if (scope === 's_') render(); else renderModal();
-  },
   mdraft: d => {
     if (!modal) return;
     const val = d.num !== undefined ? Number(d.v) : d.v;
@@ -1019,21 +729,8 @@ const actions = {
     }
     renderModal();
   },
-  pinKey: (d) => pinKey(d.k, d.purpose),
-  forgotPin: () => openGate('resetPin'),
   closeModal: () => closeModal(),
-  tab: d => { prefs.tab = d.tab; savePrefs(); ui.msg = null; render(); window.scrollTo(0, 0); },
   ktab: d => { prefs.ktab = d.tab; savePrefs(); render(); window.scrollTo(0, 0); },
-  enterKid: d => { prefs.kidMode = d.kid; prefs.ktab = 'today'; savePrefs(); render(); window.scrollTo(0, 0); },
-  exitKid: () => openModal({ type: 'pin', purpose: 'exitKid' }),
-  openKid: d => { ui.kidOpen = d.kid; prefs.tab = 'kids'; savePrefs(); render(); window.scrollTo(0, 0); },
-  newKid: () => openModal({ type: 'kid', id: null, draft: { name: '', age: 8, avatar: AVATARS[Math.floor(Math.random() * AVATARS.length)], color: COLORS[kidsList().length % COLORS.length] } }),
-  editKid: d => { const k = S.kids[d.kid]; openModal({ type: 'kid', id: k.id, draft: { name: k.name, age: k.age, avatar: k.avatar, color: k.color } }); },
-  deleteKid: d => {
-    const k = S.kids[d.kid];
-    if (!confirm(t('kids.deleteConfirm', { name: k.name }))) return;
-    busy(async () => { await removeKid(k.id); ui.kidOpen = null; if (prefs.kidMode === k.id) { prefs.kidMode = null; savePrefs(); } });
-  },
   toggle: (d, el) => {
     const k = S.kids[d.kid];
     const st = G.status(k, d.hid, d.day, (k.habits || []).find(h => h.id === d.hid));
@@ -1041,16 +738,6 @@ const actions = {
     toggleMark(d.kid, d.hid, d.day, d.ctx, el);
   },
   toggleYesterday: () => { ui.showYesterday = !ui.showYesterday; render(); },
-  approve: d => {
-    const k = S.kids[d.kid];
-    const approved = { ...(k.approved || {}) };
-    approved[d.day] = { ...(approved[d.day] || {}), [d.hid]: d.v === '1' };
-    updateKid(k.id, { approved }).catch(err => setMsg(errText(err), true));
-  },
-  decide: d => {
-    const k = S.kids[d.kid];
-    updateKid(k.id, { decisions: { ...(k.decisions || {}), [d.id]: d.v } }).catch(err => setMsg(errText(err), true));
-  },
   catalog: d => openModal({ type: 'catalog', kid: d.kid }),
   addFromCatalog: d => {
     const c = HABITS.find(h => h.code === d.code);
@@ -1064,14 +751,6 @@ const actions = {
     const k = S.kids[modal.kid];
     updateKid(k.id, { habits: k.habits.filter(h => h.id !== modal.hid) }).catch(err => setMsg(errText(err), true));
     closeModal();
-  },
-  bonus: d => openModal({ type: 'bonus', kid: d.kid, stars: 3 }),
-  newReward: () => openModal({ type: 'reward', id: null, draft: { name: '', cost: 10, emoji: '🎁' } }),
-  editReward: d => { const r = S.family.rewards.find(x => x.id === d.id); openModal({ type: 'reward', id: r.id, draft: { ...r } }); },
-  deleteReward: d => { updateFamily({ rewards: S.family.rewards.filter(r => r.id !== d.id) }).catch(err => setMsg(errText(err), true)); closeModal(); },
-  addIdea: d => {
-    const r = REWARDS[Number(d.i)];
-    updateFamily({ rewards: [...(S.family.rewards || []), { id: G.newId(), name: L(r), emoji: r.emoji, cost: r.cost }] }).catch(err => setMsg(errText(err), true));
   },
   want: d => { const r = S.family.rewards.find(x => x.id === d.id); if (r) openModal({ type: 'want', kid: d.kid, reward: r }); },
   confirmWant: () => {
@@ -1100,8 +779,6 @@ const actions = {
     pet?.classList.add('jump');
   },
   chIdea: d => { const h = HABITS.find(x => x.code === d.code); syncModalText(); modal.draft.name = h[lang] || h.en; modal.draft.emoji = h.emoji; renderModal(); },
-  chWho: d => { syncModalText(); const p = modal.draft.participants; modal.draft.participants = p.includes(d.pid) ? p.filter(x => x !== d.pid) : [...p, d.pid]; renderModal(); },
-  newChallenge: () => openModal({ type: 'challenge', draft: { name: '', emoji: '📖', days: 7, bonus: 10, startOffset: 1, participants: kidsList().map(k => 'k:' + k.id).concat(parentPid()) } }),
   chMark: (d, el) => {
     const today = G.today();
     const ch = S.family.challenges.find(c => c.id === d.id);
@@ -1113,16 +790,6 @@ const actions = {
       if (m[today]) delete m[today]; else { m[today] = true; sound('ding'); floatText(el, '🏆'); }
       all[ch.id] = m;
       updateKid(k.id, { chMarks: all }).catch(err => setMsg(errText(err), true));
-    } else {
-      const list = S.family.challenges.map(c => {
-        if (c.id !== ch.id) return c;
-        const marks = { ...(c.marks || {}) };
-        const m = { ...(marks[d.pid] || {}) };
-        if (m[today]) delete m[today]; else m[today] = true;
-        marks[d.pid] = m;
-        return { ...c, marks };
-      });
-      updateFamily({ challenges: list }).catch(err => setMsg(errText(err), true));
     }
   },
   frContact: d => busy(async () => {
@@ -1173,40 +840,11 @@ const actions = {
     const adults = adultsList();
     openModal({ type: 'propose', kid: d.kid, draft: { to: adults[0]?.[0] || null, name: '', emoji: '🏆', days: 7 } });
   },
-  answerProposal: d => {
-    const k = S.kids[d.kid];
-    const p = (k.proposals || []).find(x => x.id === d.id);
-    if (!p) return;
-    const jobs = [updateKid(k.id, { proposalAnswers: { ...(k.proposalAnswers || {}), [p.id]: d.v } })];
-    if (d.v === 'accepted') {
-      const ch = G.challengeFromProposal(k, S.mode === 'local' ? { ...p, to: 'p:local' } : p);
-      jobs.push(updateFamily({ challenges: [...(S.family.challenges || []), ch] }));
-    }
-    Promise.all(jobs).catch(err => setMsg(errText(err), true));
-  },
-  chDelete: d => { if (confirm(t('ch.delete') + '?')) updateFamily({ challenges: S.family.challenges.filter(c => c.id !== d.id) }).catch(err => setMsg(errText(err), true)); },
-  linkDevice: d => busy(async () => {
-    const code = await createCode('child', d.kid);
-    openModal({ type: 'code', code, title: `${S.kids[d.kid].avatar} ${S.kids[d.kid].name}`, text: t('kids.codeText'), share: t('kids.inviteText', { name: S.kids[d.kid].name, url: `${PUBLIC_URL}?join=${code}`, code }) });
-  }),
-  inviteParent: () => busy(async () => {
-    const code = await createCode('parent');
-    openModal({ type: 'code', code, title: t('set.inviteParent').replace('+ ', ''), text: t('set.parentCodeText') });
-  }),
   copyCode: async () => { try { await copyText(modal.code); modal.copied = true; renderModal(); } catch (err) {} },
   shareCode: async () => { try { await shareText(modal.share || `YouBoost Kids: ${modal.code}\n${PUBLIC_URL}?join=${modal.code}`); } catch (err) {} },
-  unlink: d => { if (confirm(t('kids.unlink') + '?')) busy(() => removeMember(d.uid)); },
-  editFamily: () => openModal({ type: 'text', field: 'familyName', title: t('set.family'), value: S.family?.name || '', ph: t('set.familyPh') }),
   sound: (d, el) => { prefs.sound = el.checked; savePrefs(); },
-  changePin: () => openModal({ type: 'pin', purpose: 'changePin' }),
-  signOut: () => { if (confirm(t('set.leaveConfirm'))) busy(async () => { await leaveDevice(); prefs.kidMode = null; prefs.pin = null; savePrefs(); ui.welcome = 'start'; }); },
-  deleteFamily: () => {
-    if (!confirm(t('set.deleteConfirm'))) return;
-    const word = prompt(t('set.deleteConfirm2'));
-    if ((word || '').trim().toLowerCase() !== t('set.deleteWord')) return;
-    busy(async () => { await deleteFamily(); prefs.kidMode = null; prefs.pin = null; prefs.seen = {}; savePrefs(); ui.welcome = 'start'; });
-  },
   childSettings: () => (isSolo() ? openModal({ type: 'childSettings' }) : openGate('childSettings')),
+  leaveParent: () => busy(async () => { await leaveDevice(); prefs.kidMode = null; prefs.pin = null; savePrefs(); ui.welcome = 'start'; }),
   soloReroll: () => { ui.solo.name = randomNick(lang); sound('pop'); render(); },
   soloSet: d => { ui.solo[d.k] = d.k === 'age' ? Number(d.v) : d.v; render(); },
   soloStart: () => {
@@ -1220,7 +858,7 @@ const actions = {
   },
   soloTasks: d => openModal({ type: 'soloTasks', kid: d.kid }),
   callParent: () => { ui.msg = null; openModal({ type: 'callParent' }); },
-  soloShare: async () => { try { await shareText(t('solo.message', { url: PUBLIC_URL })); } catch (err) {} },
+  soloShare: async () => { try { await shareText(t('solo.message', { url: ADULT_URL })); } catch (err) {} },
   soloRestart: () => {
     if (!confirm(t('solo.restartConfirm'))) return;
     closeModal();
@@ -1245,38 +883,6 @@ function openGate(next) {
   openModal({ type: 'gate', a, b, next });
 }
 
-async function pinKey(k, purpose) {
-  if (k === '⌫') ui.pinBuf = ui.pinBuf.slice(0, -1);
-  else if (ui.pinBuf.length < 4) ui.pinBuf += k;
-  sound('pop');
-  const inModal = !!modal && modal.type === 'pin';
-  const redraw = () => (inModal ? renderModal() : render());
-  redraw();
-  if (ui.pinBuf.length < 4) return;
-  const pin = ui.pinBuf;
-  await new Promise(r => setTimeout(r, 120));
-  ui.pinBuf = '';
-  if (purpose === 'setupPin' || purpose === 'newPin') {
-    const first = inModal ? modal.first : ui.pinFirst;
-    if (!first) {
-      if (inModal) { modal.first = pin; modal.repeat = true; modal.error = null; } else { ui.pinFirst = pin; ui.msg = null; }
-      return redraw();
-    }
-    if (first !== pin) {
-      if (inModal) { modal.first = null; modal.repeat = false; modal.error = t('setup.pinMismatch'); } else { ui.pinFirst = null; ui.msg = { text: t('setup.pinMismatch'), error: true }; }
-      return redraw();
-    }
-    prefs.pin = await hashPin(pin); savePrefs();
-    ui.pinFirst = null; ui.msg = null;
-    if (inModal) closeModal();
-    if (purpose === 'setupPin') { confetti(40); sound('fanfare'); }
-    return render();
-  }
-  // проверка PIN
-  if ((await hashPin(pin)) !== prefs.pin) { modal.error = t('pin.wrong'); return redraw(); }
-  if (purpose === 'exitKid') { prefs.kidMode = null; savePrefs(); closeModal(); render(); window.scrollTo(0, 0); return; }
-  if (purpose === 'changePin') { openModal({ type: 'pin', purpose: 'newPin' }); }
-}
 
 // ---------- Формы ----------
 const forms = {
@@ -1289,38 +895,6 @@ const forms = {
       } finally { if (fromModal && modal) renderModal(); }
       prefs.ktab = 'today'; savePrefs();
       if (fromModal) closeModal();
-    });
-  },
-  joinParent: f => {
-    const code = f.querySelector('#code').value;
-    busy(async () => { await parentJoin(code); });
-  },
-  setupKid: f => {
-    const d = ui.setup;
-    d.name = f.querySelector('#s_name').value.trim();
-    d.starter = f.querySelector('#s_starter').checked;
-    if (!d.name) return f.querySelector('#s_name').focus();
-    busy(async () => {
-      const habits = d.starter ? starterFor(d.age).map(code => habitFromCatalog(HABITS.find(h => h.code === code))) : [];
-      await addKid({ name: d.name, age: d.age, avatar: d.avatar, color: d.color, habits });
-      if (!(S.family?.rewards || []).length) {
-        await updateFamily({ rewards: REWARDS.slice(0, 4).map(r => ({ id: G.newId(), name: L(r), emoji: r.emoji, cost: r.cost })) });
-      }
-    });
-  },
-  kid: f => {
-    const d = modal.draft;
-    d.name = f.querySelector('#k_name').value.trim();
-    if (!d.name) return f.querySelector('#k_name').focus();
-    const starter = f.querySelector('#k_starter')?.checked;
-    const id = modal.id;
-    closeModal();
-    busy(async () => {
-      if (id) await updateKid(id, { name: d.name, age: d.age, avatar: d.avatar, color: d.color });
-      else {
-        const habits = starter ? starterFor(d.age).map(code => habitFromCatalog(HABITS.find(h => h.code === code))) : [];
-        ui.kidOpen = await addKid({ name: d.name, age: d.age, avatar: d.avatar, color: d.color, habits });
-      }
     });
   },
   habit: f => {
@@ -1336,24 +910,6 @@ const forms = {
     updateKid(k.id, { habits }).catch(err => setMsg(errText(err), true));
     closeModal();
   },
-  reward: f => {
-    syncModalText();
-    const d = modal.draft;
-    d.name = (d.name || '').trim();
-    d.cost = Math.max(1, Math.min(9999, Math.round(Number(d.cost) || 1)));
-    if (!d.name) return f.querySelector('#r_name').focus();
-    const list = S.family.rewards || [];
-    const rewards = modal.id ? list.map(r => (r.id === modal.id ? { ...r, ...d } : r)) : [...list, { id: G.newId(), name: d.name, emoji: d.emoji, cost: d.cost }];
-    updateFamily({ rewards }).catch(err => setMsg(errText(err), true));
-    closeModal();
-  },
-  bonus: f => {
-    const k = S.kids[modal.kid];
-    const reason = f.querySelector('#b_reason').value.trim();
-    updateKid(k.id, { bonus: [...(k.bonus || []), { id: G.newId(), stars: modal.stars, reason, at: new Date().toISOString() }] }).catch(err => setMsg(errText(err), true));
-    closeModal();
-    confetti(20); sound('ding');
-  },
   petName: f => {
     const name = f.querySelector('#petName').value.trim() || modal.name;
     const k = S.kids[modal.kid];
@@ -1361,11 +917,6 @@ const forms = {
     updateKid(k.id, { pet: { ...(k.pet || {}), type, name } }).catch(err => setMsg(errText(err), true));
     closeModal();
     if (!k.pet) { confetti(30); sound('fanfare'); }
-  },
-  text: f => {
-    const v = f.querySelector('#t_val').value.trim();
-    if (modal.field === 'familyName') updateFamily({ name: v }).catch(err => setMsg(errText(err), true));
-    closeModal();
   },
   frEnter: f => {
     const code = f.querySelector('#frCode').value;
@@ -1397,16 +948,6 @@ const forms = {
     sound('fanfare'); confetti(30);
     celebrateQueue.unshift({ emoji: '⚔️', title: t('kid.proposeSent'), text: t('kid.proposeSentText') });
     setTimeout(nextCelebration, 300);
-  },
-  challenge: f => {
-    syncModalText();
-    const d = modal.draft;
-    d.name = d.name.trim();
-    if (!d.name) return f.querySelector('#c_name').focus();
-    if (d.participants.length < 2) { modal.error = t('ch.needTwo'); return renderModal(); }
-    const ch = { id: G.newId(), name: d.name, emoji: d.emoji, days: d.days, bonus: d.bonus, start: G.addDays(G.today(), d.startOffset), participants: d.participants, marks: {}, createdAt: new Date().toISOString() };
-    updateFamily({ challenges: [...(S.family.challenges || []), ch] }).catch(err => setMsg(errText(err), true));
-    closeModal();
   },
   gate: f => {
     const ans = Number(f.querySelector('#gateAns').value);
@@ -1452,7 +993,6 @@ let lastDay = G.today();
 setInterval(() => { if (G.today() !== lastDay) { lastDay = G.today(); render(); } }, 60000);
 document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
 
-const GOOGLE_SVG = '<svg viewBox="0 0 48 48" width="18" height="18" aria-hidden="true"><path fill="#FFC107" d="M43.6 20.5H42V20H24v8h11.3C33.7 32.7 29.2 36 24 36c-6.6 0-12-5.4-12-12s5.4-12 12-12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 12.9 4 4 12.9 4 24s8.9 20 20 20 20-8.9 20-20c0-1.3-.1-2.4-.4-3.5z"/><path fill="#FF3D00" d="M6.3 14.7l6.6 4.8C14.7 15.1 19 12 24 12c3.1 0 5.8 1.2 7.9 3.1l5.7-5.7C34 6.1 29.3 4 24 4 16.3 4 9.7 8.3 6.3 14.7z"/><path fill="#4CAF50" d="M24 44c5.2 0 9.9-2 13.4-5.2l-6.2-5.2C29.2 35.1 26.7 36 24 36c-5.2 0-9.6-3.3-11.3-8l-6.5 5C9.5 39.6 16.2 44 24 44z"/><path fill="#1976D2" d="M43.6 20.5H42V20H24v8h11.3c-.8 2.2-2.2 4.2-4.1 5.6l6.2 5.2C37 39.2 44 34 44 24c0-1.3-.1-2.4-.4-3.5z"/></svg>';
 
 // Ссылки-приглашения: ?join=КОД — родитель зовёт ребёнка в семью, ?friend=КОД — друг зовёт дружить.
 (function readLinks() {
