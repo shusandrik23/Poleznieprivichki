@@ -1,0 +1,14 @@
+{
+  "name": "Говорун — ораторское искусство",
+  "short_name": "Говорун",
+  "description": "Тренажёр ораторского искусства в формате коротких уроков",
+  "lang": "ru",
+  "start_url": "./",
+  "display": "standalone",
+  "orientation": "portrait",
+  "background_color": "#ffffff",
+  "theme_color": "#ffffff",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

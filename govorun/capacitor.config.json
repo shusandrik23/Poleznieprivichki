@@ -1,0 +1,8 @@
+{
+  "appId": "com.govorun.app",
+  "appName": "Говорун",
+  "webDir": "www",
+  "android": {
+    "backgroundColor": "#ffffff"
+  }
+}
