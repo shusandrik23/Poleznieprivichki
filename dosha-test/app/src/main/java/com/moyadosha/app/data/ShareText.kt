@@ -6,7 +6,7 @@ object ShareText {
         val s = UiStrings(lang)
         val rec = Recommendations(lang)
         val who = name.trim().ifEmpty { if (ru) "Я" else "Me" }
-        appendLine(if (ru) "🪷 Тест «Моя доша»" else "🪷 \"My Dosha\" test")
+        appendLine("🪷 Dosha test")
         appendLine()
         appendLine("$who, $age ${s.years(age)}")
         appendLine((if (ru) "Тип по Аюрведе: " else "Ayurvedic type: ") + "${r.typeName(lang)} ${r.emoji}")
@@ -29,8 +29,8 @@ object ShareText {
         }
         appendLine()
         append(
-            if (ru) "А какая доша у тебя? Пройди тест «Моя доша» 🌬️🔥🌿"
-            else "What's your dosha? Take the \"My Dosha\" test 🌬️🔥🌿"
+            if (ru) "А какая доша у тебя? Пройди Dosha test 🌬️🔥🌿"
+            else "What's your dosha? Take the Dosha test 🌬️🔥🌿"
         )
     }
 }

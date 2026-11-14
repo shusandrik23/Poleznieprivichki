@@ -12,5 +12,5 @@ dependencyResolutionManagement {
         mavenCentral()
     }
 }
-rootProject.name = "MoyaDosha"
+rootProject.name = "DoshaTest"
 include(":app")

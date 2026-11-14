@@ -5,7 +5,7 @@ class UiStrings(val lang: Lang) {
     private val ru = lang == Lang.RU
     private fun t(ru: String, en: String) = if (this.ru) ru else en
 
-    val appName = t("Моя доша", "My Dosha")
+    val appName = "Dosha test"
     val intro = t(
         "Узнайте свой тип по Аюрведе — Вата, Питта или Капха — и получите советы по питанию, режиму дня и образу жизни.",
         "Discover your Ayurvedic type — Vata, Pitta or Kapha — and get tips on food, daily routine and lifestyle.",
@@ -59,7 +59,7 @@ class UiStrings(val lang: Lang) {
     val expand = t("Развернуть", "Expand")
     val share = t("Поделиться результатом", "Share my result")
     val retake = t("Пройти заново", "Take the test again")
-    val shareSubject = t("Мой результат теста «Моя доша»", "My \"My Dosha\" test result")
+    val shareSubject = t("Мой результат: Dosha test", "My Dosha test result")
 
     fun years(n: Int): String {
         if (!ru) return if (n == 1) "year old" else "years old"

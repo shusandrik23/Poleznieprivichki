@@ -1,4 +1,4 @@
-# Моя доша / My Dosha — тест на определение доши (Android)
+# Dosha test — тест на определение доши (Android)
 
 Нативное Android-приложение (Kotlin + Jetpack Compose).
 
@@ -29,5 +29,5 @@
 
 ## Сборка
 
-APK собирается в GitHub Actions при каждом push: **Actions → Android APK → Artifacts → my-dosha-debug**.
+APK собирается в GitHub Actions при каждом push: **Actions → Android APK → Artifacts → dosha-test-debug**.
 Локально: открыть папку в Android Studio или `./gradlew assembleDebug`.
