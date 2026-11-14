@@ -15,9 +15,9 @@ export const TYPES = {
 export const LEVELS = ['Родители', 'Род', 'Народ', 'Человечество', 'Природа', 'Вселенная', 'Бог'];
 export const SPHERES = ['Здоровье и тело', 'Отношения и семья', 'Деньги', 'Дело и работа', 'Развитие', 'Духовность'];
 export const PRESETS = {
-  causes:  { tools: ['me', 'block', 'root', 'well'], flip: false, title: 'Карта причин' },
-  future:  { tools: ['i1', 'i2', 'block', 'root', 'well', 'me'], flip: true, title: 'Я завтрашний' },
-  rod:     { tools: [], fixed: true, title: 'Корни и крона' },
+  causes:  { tools: ['me', 'block', 'root', 'well'], flip: false, title: 'Почему не получается' },
+  future:  { tools: ['i1', 'i2', 'block', 'root', 'well', 'me'], flip: true, title: 'Я версия 2.0' },
+  rod:     { tools: [], fixed: true, title: 'Не один' },
 };
 
 const W = 1000, H = 1300, NS = 'http://www.w3.org/2000/svg';

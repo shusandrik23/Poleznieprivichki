@@ -1,5 +1,5 @@
 // Офлайн-режим: всё приложение кладётся в кэш при первом открытии
-const CACHE = 'tabletka-v1';
+const CACHE = 'tabletka-v2';
 const FILES = ['./', 'index.html', 'manifest.webmanifest', 'css/app.css', 'icons/icon.svg', 'icons/icon-192.png', 'icons/icon-512.png',
   'js/app.js', 'js/ui.js', 'js/store.js', 'js/speech.js', 'js/feelings.js', 'js/techniques.js', 'js/engine.js',
   'js/canvas.js', 'js/timeline.js', 'js/burn.js', 'js/beliefs.js', 'js/course.js', 'js/ppp.js', 'js/remind.js'];

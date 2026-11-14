@@ -14,7 +14,7 @@
     { "src": "icons/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
   ],
   "shortcuts": [
-    { "name": "SOS — Стоп-кран", "url": "./#/run/stop/guide/sos" },
-    { "name": "Вечерний дневник «Новый сценарий»", "url": "./#/course" }
+    { "name": "SOS", "url": "./#/run/stop/guide/sos" },
+    { "name": "Вечерний дневник «Перепрошивка»", "url": "./#/course" }
   ]
 }
