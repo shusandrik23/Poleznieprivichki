@@ -272,38 +272,116 @@ function startLesson(id, from) {
 // Any story of any grade, regardless of what is open on the map: single lessons or a mixed test.
 const storyById = id => C.books.flatMap(b => b.stories).find(s => s.id === id);
 
+// search: no nikud needed, final letters = regular letters, case and ё ignored
+const FINALS = { 'ך': 'כ', 'ם': 'מ', 'ן': 'נ', 'ף': 'פ', 'ץ': 'צ' };
+const norm = t => String(t || '').replace(/[֑-ׇ]/g, '').replace(/[ךםןףץ]/g, c => FINALS[c])
+  .replace(/[״׳"'״־\-–—(),.:;!?«»„”]/g, ' ').toLowerCase().replace(/ё/g, 'е').replace(/\s+/g, ' ').trim();
+let pQuery = '';
+
+function searchIndex() {
+  if (C.search) return C.search;
+  const words = (...parts) => norm(parts.flat().join(' ')).split(' ').filter(Boolean);
+  C.search = [];
+  for (const b of C.books) for (const st of b.stories) {
+    if (st.soon) continue;
+    const lessons = st.lessons.map(l => ({ id: l.id, title: words(l.title, l.ru?.title || ''),
+      text: words(l.story || [], l.ru?.story || [], l.words.flatMap(w => [w.t, w.m, w.ru || ''])) }));
+    C.search.push({ book: b, st, title: words(st.title, st.ru || '', b.subtitle), lessons });
+  }
+  return C.search;
+}
+// Hebrew words may carry one prefix letter (וְ, הַ, בְּ, לְ, מִ, שֶׁ, כְּ)
+const HE = /[א-ת]/, PREFIX = 'ובהלמשכ';
+const variants = x => (HE.test(x[0]) && PREFIX.includes(x[0]) && x.length > 2 ? [x, x.slice(1)] : [x]);
+// full/defective spelling: סולם = סֻלָּם (inner ו and י are ignored)
+const loose = x => (HE.test(x) && x.length >= 4 ? x.replace(/(?!^)[וי](?!$)/g, '') : x);
+const inTitle = (ws, q) => ws.some(x => variants(x).some(v => loose(v).startsWith(loose(q))));
+const inText = (ws, q) => ws.some(x => variants(x).some(v => (HE.test(q) ? loose(v) === loose(q) : v.startsWith(q))));
+// one name, three spellings: Иосиф = Йосеф = יוֹסֵף (from the names table)
+function synonyms(q) {
+  if (!C.syn) {
+    C.syn = (C.names || []).map(row => row.flatMap(cell => norm(cell).split(' ').filter(w => w.length > 2)));
+  }
+  const out = new Set([q]);
+  if (q.length >= 3) {
+    // a whole-name match wins: Иона → Йона, not Ионафан
+    const exact = C.syn.filter(g => g.some(w => loose(w) === loose(q)));
+    const groups = exact.length ? exact : C.syn.filter(g => g.some(w => loose(w).startsWith(loose(q))));
+    groups.forEach(g => g.forEach(w => out.add(w)));
+  }
+  return [...out];
+}
+const anyIn = (fn, ws, q) => synonyms(q).some(v => fn(ws, v));
+
+function practiceStoryHtml(st, sel, hits, book) {
+  const done = st.lessons.filter(l => S.done[l.id]).length, on = sel.has(st.id);
+  return `<div class="p-story ${on ? 'on' : ''}">
+    <button class="p-check" data-act="psel" data-id="${st.id}" aria-pressed="${on}">
+      <span class="box">${on ? '✓' : ''}</span>
+      <span class="p-title">${book ? `<small class="p-grade">${esc(book.subtitle)}</small>` : ''}${esc(st.title)}${sub(st.ru)}</span>
+      <span class="p-count">${done}/${st.lessons.length}</span></button>
+    <div class="p-lessons">${st.lessons.map(l => `<button class="p-lesson ${S.done[l.id] ? 'done' : ''} ${hits?.has(l.id) ? 'hit' : ''}" data-act="plesson" data-id="${l.id}">
+      <span>${l.icon}</span><span>${esc(l.title)}${sub(l.ru?.title)}</span>${S.done[l.id] ? '<i>✓</i>' : ''}</button>`).join('')}</div>
+  </div>`;
+}
+
+function practiceListHtml() {
+  const sel = new Set(S.pSel || []);
+  const q = norm(pQuery);
+  if (q) {
+    const qs = q.split(' ');
+    const found = [];
+    for (const e of searchIndex()) {
+      const T_ = (ws, w) => anyIn(inTitle, ws, w), X_ = (ws, w) => anyIn(inText, ws, w);
+      const titleHit = qs.every(w => T_(e.title, w));
+      const lessonTitle = e.lessons.filter(l => qs.every(w => T_(l.title, w) || T_(e.title, w)) && qs.some(w => T_(l.title, w)));
+      const lessonText = e.lessons.filter(l => qs.every(w => T_(l.title, w) || T_(e.title, w) || X_(l.text, w)));
+      // highlight only lessons that contain the words themselves, not just because the story title matched
+      const lessonHits = new Set(e.lessons.filter(l => qs.every(w => T_(l.title, w) || X_(l.text, w))).map(l => l.id));
+      const exact = qs.every(w => synonyms(w).some(v => e.title.includes(v)));
+      if (titleHit || lessonText.length) found.push({ e, lessonHits, score: titleHit ? (exact ? 0 : 1) : lessonTitle.length ? 2 : 3 });
+    }
+    found.sort((a, b) => a.score - b.score);
+    if (!found.length) return `<div class="empty">${mascot('think')}<p>${tr('לֹא מָצָאנוּ. נַסּוּ מִלָּה אַחֶרֶת – לְמָשָׁל שֵׁם שֶׁל דְּמוּת.', 'Ничего не нашлось. Попробуйте другое слово — например, имя героя.')}</p></div>`;
+    return `<p class="p-found">${tr(`נִמְצְאוּ ${found.length} נוֹשְׂאִים`, `Найдено тем: ${found.length}`)}</p>`
+      + found.map(f => practiceStoryHtml(f.e.st, sel, f.lessonHits, f.e.book)).join('');
+  }
+  const book = C.books.find(b => b.id === S.pBook);
+  return `<nav class="grades">${C.books.map(b => `<button class="grade ${b.id === S.pBook ? 'on' : ''}" data-act="pbook" data-book="${b.id}">${esc(b.subtitle)}</button>`).join('')}</nav>
+    <h2 class="p-book">${esc(book.title)}${sub(book.ru)}</h2>`
+    + book.stories.filter(st => !st.soon).map(st => practiceStoryHtml(st, sel)).join('');
+}
+
+function practiceBottomHtml() {
+  const n = (S.pSel || []).length;
+  return `<button class="btn gold" data-act="ptest" ${n ? '' : 'disabled'}>📝 ${n
+    ? tr(`מִבְחַן נִסָּיוֹן (${n === 1 ? 'נוֹשֵׂא אֶחָד' : n + ' נוֹשְׂאִים'})`, `Пробная контрольная (тем: ${n})`)
+    : tr('סַמְּנוּ נוֹשְׂאִים לַמִּבְחָן', 'Отметьте темы для контрольной')}</button>`;
+}
+
+function refreshPractice() {
+  const list = document.getElementById('p-list');
+  if (!list) return renderPractice();
+  list.innerHTML = practiceListHtml();
+  document.getElementById('p-bottom').innerHTML = practiceBottomHtml();
+}
+
 function renderPractice() {
   onHome = false; R = null;
   if (!S.pBook || !C.steps[S.pBook]) S.pBook = S.lastBook && C.steps[S.lastBook] ? S.lastBook : C.books[0].id;
   S.pSel = (S.pSel || []).filter(id => storyById(id));
-  const sel = new Set(S.pSel);
-  const book = C.books.find(b => b.id === S.pBook);
-  let html = `<header class="topbar"><button class="close" data-act="home" aria-label="${tr('חֲזָרָה', 'Назад')}">→</button>
+  app.innerHTML = `<header class="topbar"><button class="close" data-act="home" aria-label="${tr('חֲזָרָה', 'Назад')}">→</button>
       <span class="brand">${tr('הֲכָנָה לַמִּבְחָן', 'Подготовка к контрольной')}</span></header>
     <div class="practice">
     <p class="hint">${tr('אֶפְשָׁר לַעֲבֹר כָּל שִׁעוּר בְּנִפְרָד, גַּם אִם הוּא עוֹד נָעוּל בַּמַּפָּה. סַמְּנוּ נוֹשֵׂא אֶחָד אוֹ כַּמָּה – וַעֲשׂוּ מִבְחַן נִסָּיוֹן.',
       'Любой урок можно пройти отдельно, даже если на карте он ещё закрыт. Отметьте одну или несколько тем — и напишите пробную контрольную.')}</p>
-    <nav class="grades">${C.books.map(b => `<button class="grade ${b.id === S.pBook ? 'on' : ''}" data-act="pbook" data-book="${b.id}">${esc(b.subtitle)}</button>`).join('')}</nav>
-    <h2 class="p-book">${esc(book.title)}${sub(book.ru)}</h2>`;
-  for (const st of book.stories) {
-    if (st.soon) continue;
-    const done = st.lessons.filter(l => S.done[l.id]).length, on = sel.has(st.id);
-    html += `<div class="p-story ${on ? 'on' : ''}">
-      <button class="p-check" data-act="psel" data-id="${st.id}" aria-pressed="${on}">
-        <span class="box">${on ? '✓' : ''}</span>
-        <span class="p-title">${esc(st.title)}${sub(st.ru)}</span>
-        <span class="p-count">${done}/${st.lessons.length}</span></button>
-      <div class="p-lessons">${st.lessons.map(l => `<button class="p-lesson ${S.done[l.id] ? 'done' : ''}" data-act="plesson" data-id="${l.id}">
-        <span>${l.icon}</span><span>${esc(l.title)}${sub(l.ru?.title)}</span>${S.done[l.id] ? '<i>✓</i>' : ''}</button>`).join('')}</div>
-    </div>`;
-  }
-  html += `<div style="height:110px"></div></div>
-    <div class="bottom"><div class="bottom-inner">
-      <button class="btn gold" data-act="ptest" ${sel.size ? '' : 'disabled'}>📝 ${sel.size
-        ? tr(`מִבְחַן נִסָּיוֹן (${sel.size === 1 ? 'נוֹשֵׂא אֶחָד' : sel.size + ' נוֹשְׂאִים'})`, `Пробная контрольная (тем: ${sel.size})`)
-        : tr('סַמְּנוּ נוֹשְׂאִים לַמִּבְחָן', 'Отметьте темы для контрольной')}</button>
-    </div></div>`;
-  app.innerHTML = html;
+    <div class="p-search"><span aria-hidden="true">🔍</span>
+      <input id="p-q" type="search" dir="auto" autocomplete="off" value="${esc(pQuery)}"
+        placeholder="${tr('חִפּוּשׂ: נֹחַ, יוֹסֵף, מַכּוֹת…', 'Поиск: Ной, Иосиф, казни, נֹחַ…')}" aria-label="${tr('חִפּוּשׂ', 'Поиск')}">
+      ${pQuery ? `<button class="p-clear" data-act="pclear" aria-label="${tr('נַקֵּה', 'Очистить')}">✕</button>` : ''}</div>
+    <div id="p-list">${practiceListHtml()}</div>
+    <div style="height:110px"></div></div>
+    <div class="bottom"><div class="bottom-inner" id="p-bottom">${practiceBottomHtml()}</div></div>`;
 }
 
 function startTest(storyIds) {
@@ -707,8 +785,9 @@ app.addEventListener('click', e => {
     case 'choose-lang': S.lang = el.dataset.lang; S.langChosen = true; save(); window.scrollTo(0, 0); renderHome(); break;
     case 'quit': { stopSpeech(); const from = R?.from; from === 'practice' ? renderPractice() : renderHome(); window.scrollTo(0, 0); break; }
     case 'practice': renderPractice(); window.scrollTo(0, 0); break;
-    case 'pbook': S.pBook = el.dataset.book; save(); renderPractice(); break;
-    case 'psel': { const set = new Set(S.pSel || []); set.has(el.dataset.id) ? set.delete(el.dataset.id) : set.add(el.dataset.id); S.pSel = [...set]; save(); const y = window.scrollY; renderPractice(); window.scrollTo(0, y); break; }
+    case 'pbook': S.pBook = el.dataset.book; save(); refreshPractice(); break;
+    case 'psel': { const set = new Set(S.pSel || []); set.has(el.dataset.id) ? set.delete(el.dataset.id) : set.add(el.dataset.id); S.pSel = [...set]; save(); const y = window.scrollY; refreshPractice(); window.scrollTo(0, y); break; }
+    case 'pclear': pQuery = ''; renderPractice(); document.getElementById('p-q')?.focus(); break;
     case 'plesson': startLesson(el.dataset.id, 'practice'); window.scrollTo(0, 0); break;
     case 'ptest': startTest(S.pSel || []); window.scrollTo(0, 0); break;
     case 'force': document.getElementById('sheet')?.remove(); el.dataset.kind === 'lesson' ? startLesson(el.dataset.id) : startChest(el.dataset.id); window.scrollTo(0, 0); break;
@@ -745,6 +824,17 @@ app.addEventListener('click', e => {
     case 'mL': matchTap('L', el.dataset.id); break;
     case 'mR': matchTap('R', el.dataset.id); break;
   }
+});
+
+app.addEventListener('input', e => {
+  if (e.target.id !== 'p-q') return;
+  const had = !!pQuery;
+  pQuery = e.target.value;
+  if (had !== !!pQuery) {           // show / hide the clear button without losing the cursor
+    const pos = e.target.selectionStart;
+    renderPractice();
+    const inp = document.getElementById('p-q'); inp.focus(); inp.setSelectionRange(pos, pos);
+  } else refreshPractice();
 });
 
 /* ---------------- boot ---------------- */
