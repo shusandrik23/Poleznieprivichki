@@ -53,7 +53,7 @@ export default {
   'fam.needApproval': 'Stars after my approval',
   'fam.send': 'Send task',
   'fam.taskSent': 'Task sent — {name} will see it in YouBoost Kids.',
-  'fam.kidCodeText': 'Send the link ({name}): YouBoost Kids opens and connects by itself. Or enter the code in the app: “This is my child\'s phone”. Valid for 24 hours.',
+  'fam.kidCodeText': 'Send the link ({name}): YouBoost Kids opens and connects by itself. Or the child enters the code: “A parent sent me a link or code”. Valid for 24 hours.',
   'fam.parentCodeText': 'Other parent: YouBoost → “Kids” → “The other parent already created a family?” and this code. Valid for 24 hours.',
   'fam.copy': 'Copy',
   'fam.challenges': 'Family challenges',
