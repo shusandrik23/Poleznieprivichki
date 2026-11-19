@@ -1,0 +1,52 @@
+# Публикация правил доступа Firestore (firestore.rules) в Firebase.
+# Запускается сама, когда firestore.rules меняется в ветке сайта, и вручную: Actions → «Firestore rules» → Run workflow.
+#
+# Нужен секрет репозитория FIREBASE_SERVICE_ACCOUNT — JSON-ключ служебного аккаунта Google Cloud
+# с ролями «Firebase Rules Admin» и «Service Usage Consumer» (инструкция — README, раздел «Автопубликация правил»).
+# Пока секрета нет, workflow ничего не публикует и не падает.
+name: Firestore rules
+
+on:
+  push:
+    branches: [claude/habit-tracker-app-9t4lh5]
+    paths: [firestore.rules]
+  workflow_dispatch:
+
+concurrency:
+  group: firestore-rules
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Есть ли ключ
+        id: key
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          if [ -z "$SA" ]; then
+            echo "::warning::Секрет FIREBASE_SERVICE_ACCOUNT не задан — правила не опубликованы. См. README, раздел «Автопубликация правил»."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/checkout@v4
+        if: steps.key.outputs.ok == 'true'
+
+      - uses: actions/setup-node@v4
+        if: steps.key.outputs.ok == 'true'
+        with:
+          node-version: 22
+
+      - name: Публикация firestore.rules
+        if: steps.key.outputs.ok == 'true'
+        env:
+          SA: ${{ secrets.FIREBASE_SERVICE_ACCOUNT }}
+        run: |
+          KEY="$RUNNER_TEMP/sa.json"
+          printf '%s' "$SA" > "$KEY"
+          export GOOGLE_APPLICATION_CREDENTIALS="$KEY"
+          npx -y firebase-tools@15.34.2 deploy --only firestore:rules --project poleznie-privichki --non-interactive --force
+          rm -f "$KEY"

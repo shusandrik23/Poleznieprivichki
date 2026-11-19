@@ -121,6 +121,25 @@ https://shusandrik23.github.io/Poleznieprivichki/
 6. **Project settings (шестерёнка) → General → Your apps → значок `</>` (Web)** → зарегистрируйте приложение → скопируйте объект `firebaseConfig`.
 7. Вставьте его в `firebase-config.js` вместо `null`. Эти значения не секретные, их можно хранить в открытом репозитории.
 
+## Автопубликация правил (GitHub Actions)
+
+Workflow `.github/workflows/firestore-rules.yml` сам публикует `firestore.rules` в Firebase, когда файл меняется в ветке сайта `claude/habit-tracker-app-9t4lh5`. Запустить вручную можно так: **Actions → Firestore rules → Run workflow**. Нужно один раз завести ключ.
+
+**1. Служебный аккаунт в Google Cloud** (входить тем же Google-аккаунтом, что и в Firebase):
+1. Откройте https://console.cloud.google.com/iam-admin/serviceaccounts?project=poleznie-privichki
+2. **Create service account** → имя `github-rules-deploy` → **Create and continue**.
+3. Роли: **Firebase Rules Admin** и **Service Usage Consumer** (найти через поиск в поле «Select a role») → **Continue** → **Done**.
+4. Откройте созданный аккаунт → вкладка **Keys** → **Add key → Create new key → JSON → Create**. Скачается файл `poleznie-privichki-….json`.
+
+**2. Секрет в GitHub:**
+1. Репозиторий на GitHub → **Settings → Secrets and variables → Actions → New repository secret**.
+2. Name: `FIREBASE_SERVICE_ACCOUNT`, Secret: откройте скачанный JSON-файл в блокноте и вставьте **всё** содержимое → **Add secret**.
+3. **Удалите скачанный файл** с компьютера: ключ теперь хранится только в GitHub. Никуда больше его не отправляйте и не коммитьте в репозиторий.
+
+**3. Проверка:** Actions → **Firestore rules** → **Run workflow** (ветка `claude/habit-tracker-app-9t4lh5`). В конце лога должно быть «Deploy complete!».
+
+Ключ даёт право только менять правила Firestore, а не читать или удалять данные. Если ключ утёк, удалите его в Google Cloud (Keys → корзина) и создайте новый. Если Google пишет, что создание ключей запрещено политикой организации, публикуйте правила вручную командой из следующего раздела.
+
 ## Серверные функции и публикация (Firebase, тариф Blaze)
 
 В папке `functions/` — серверные функции: пуш-уведомления, когда пользователю бросают вызов или присылают заявку в друзья (Firebase Cloud Messaging). Публикуются вместе с правилами доступа одной командой.
